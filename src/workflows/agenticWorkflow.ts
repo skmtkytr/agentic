@@ -13,38 +13,21 @@ import type { ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, W
 
 // --- Activity proxies with distinct retry policies ---
 
+// 30 min timeout — LLM calls can take minutes for complex tasks.
 const { plannerActivity, validatorActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '5 minutes',
-  retry: {
-    initialInterval: '10 seconds',
-    backoffCoefficient: 2,
-    maximumInterval: '2 minutes',
-    maximumAttempts: 3,
-    nonRetryableErrorTypes: ['AnthropicAuthError'],
-  },
+  startToCloseTimeout: '30 minutes',
+  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
 });
 
 const { executorActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '3 minutes',
-  retry: {
-    initialInterval: '5 seconds',
-    backoffCoefficient: 2,
-    maximumInterval: '60 seconds',
-    maximumAttempts: 5,
-    nonRetryableErrorTypes: ['AnthropicAuthError'],
-  },
+  startToCloseTimeout: '30 minutes',
+  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
 });
 
 const { reviewerActivity, integratorActivity, integrationReviewerActivity } =
   proxyActivities<Activities>({
-    startToCloseTimeout: '3 minutes',
-    retry: {
-      initialInterval: '5 seconds',
-      backoffCoefficient: 2,
-      maximumInterval: '60 seconds',
-      maximumAttempts: 5,
-      nonRetryableErrorTypes: ['AnthropicAuthError'],
-    },
+    startToCloseTimeout: '30 minutes',
+    retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
   });
 
 // --- Signals and Queries ---
