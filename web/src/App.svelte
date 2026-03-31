@@ -97,6 +97,30 @@
   function formatTime(ts: number) { return new Date(ts).toLocaleTimeString('ja-JP',{hour12:false}); }
   function formatDateTime(iso: string) { const d=new Date(iso);return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
   function statusBadge(s: string) { return s==='RUNNING'?{l:'実行中',c:'var(--blue)'}:s==='COMPLETED'?{l:'完了',c:'var(--green)'}:s==='FAILED'?{l:'失敗',c:'var(--red)'}:{l:s,c:'var(--muted)'}; }
+  let copied = $state(false);
+
+  function getResultMarkdown(): string {
+    if (!result) return '';
+    return result.finalResponse;
+  }
+
+  async function copyResult() {
+    await navigator.clipboard.writeText(getResultMarkdown());
+    copied = true;
+    setTimeout(() => copied = false, 2000);
+  }
+
+  function downloadResult() {
+    const text = getResultMarkdown();
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${workflowId?.replace('agentic-', '').slice(0, 8) ?? 'result'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;loading=false;expandedTasks=new Set();setHash(null); }
   function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
 
@@ -430,7 +454,17 @@
         <!-- Result -->
         {#if result}
           <div class="card result-card">
-            <div class="card-header"><span class="card-title">結果</span></div>
+            <div class="card-header">
+              <span class="card-title">結果</span>
+              <div class="result-actions">
+                <button class="action-btn" onclick={copyResult} title="Markdownをコピー">
+                  {copied ? '✓ コピー済' : '📋 コピー'}
+                </button>
+                <button class="action-btn" onclick={downloadResult} title=".mdファイルをダウンロード">
+                  📥 DL
+                </button>
+              </div>
+            </div>
             <div class="result-body markdown">{@html md(result.finalResponse)}</div>
             {#if result.integrationReviewNotes}
               <div class="review-banner markdown" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
@@ -727,6 +761,13 @@
 
   /* Result */
   .result-card .card-header { border-bottom:1px solid var(--border); }
+  .result-actions { display:flex; gap:0.35rem; }
+  .action-btn {
+    background:var(--bg); border:1px solid var(--border); color:var(--text2);
+    padding:0.25rem 0.6rem; font-size:0.7rem; border-radius:6px; cursor:pointer;
+    transition:all 0.12s; white-space:nowrap;
+  }
+  .action-btn:hover { background:var(--bg3); color:var(--text); border-color:var(--border2); }
   .result-body { padding:1rem; word-break:break-word; font-family:inherit; font-size:0.85rem; line-height:1.7; color:var(--text); margin:0; }
 
   /* Markdown rendered content */

@@ -48,6 +48,7 @@ services:
       - PORT=3001
     volumes:
       - ${CLAUDE_CONFIG_DIR:-~/.config/claude}:/root/.claude
+      - ./web/dist:/app/web/dist
     depends_on:
       temporal:
         condition: service_started
