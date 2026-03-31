@@ -1,5 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { marked } from 'marked';
+
+  // Configure marked for safe rendering
+  marked.setOptions({ breaks: true, gfm: true });
+
+  function md(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
 
   type Phase = 'planning' | 'validating' | 'executing' | 'integrating' | 'reviewing' | 'complete' | 'failed';
 
@@ -346,7 +354,7 @@
                     <div class="task-card-desc">{task.description}</div>
                     {#if expandedTasks.has(task.id) && (task.result || task.reviewNotes)}
                       <div class="task-card-detail" onclick={(e: MouseEvent)=>e.stopPropagation()}>
-                        {#if task.result}<pre class="task-result">{task.result}</pre>{/if}
+                        {#if task.result}<div class="task-result markdown">{@html md(task.result)}</div>{/if}
                         {#if task.reviewNotes}<p class="task-review">レビュー: {task.reviewNotes}</p>{/if}
                       </div>
                     {/if}
@@ -384,10 +392,10 @@
         {#if result}
           <div class="card result-card">
             <div class="card-header"><span class="card-title">結果</span></div>
-            <pre class="result-body">{result.finalResponse}</pre>
+            <div class="result-body markdown">{@html md(result.finalResponse)}</div>
             {#if result.integrationReviewNotes}
-              <div class="review-banner" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
-                {result.integrationReviewNotes}
+              <div class="review-banner markdown" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
+                {@html md(result.integrationReviewNotes)}
               </div>
             {/if}
           </div>
@@ -642,7 +650,7 @@
   .task-status-label { font-size:0.65rem; color:var(--muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em; }
   .task-card-desc { font-size:0.82rem; color:var(--text2); line-height:1.4; }
   .task-card-detail { margin-top:0.6rem; padding-top:0.6rem; border-top:1px solid var(--border); }
-  .task-result { background:var(--bg2); border-radius:6px; padding:0.6rem; white-space:pre-wrap; word-break:break-word; font-size:0.72rem; line-height:1.5; margin:0; color:var(--text2); max-height:300px; overflow-y:auto; }
+  .task-result { background:var(--bg2); border-radius:6px; padding:0.6rem; word-break:break-word; font-size:0.72rem; line-height:1.5; margin:0; color:var(--text2); max-height:300px; overflow-y:auto; }
   .task-review { font-size:0.72rem; color:var(--muted); margin:0.4rem 0 0; }
 
   /* Event log */
@@ -659,7 +667,29 @@
 
   /* Result */
   .result-card .card-header { border-bottom:1px solid var(--border); }
-  .result-body { padding:1rem; white-space:pre-wrap; word-break:break-word; font-family:inherit; font-size:0.85rem; line-height:1.7; color:var(--text); margin:0; }
+  .result-body { padding:1rem; word-break:break-word; font-family:inherit; font-size:0.85rem; line-height:1.7; color:var(--text); margin:0; }
+
+  /* Markdown rendered content */
+  :global(.markdown h1) { font-size:1.3rem; font-weight:700; margin:0.8rem 0 0.4rem; color:var(--text); border-bottom:1px solid var(--border); padding-bottom:0.3rem; }
+  :global(.markdown h2) { font-size:1.1rem; font-weight:700; margin:0.7rem 0 0.35rem; color:var(--text); }
+  :global(.markdown h3) { font-size:0.95rem; font-weight:600; margin:0.6rem 0 0.3rem; color:var(--text); }
+  :global(.markdown h4) { font-size:0.85rem; font-weight:600; margin:0.5rem 0 0.25rem; color:var(--text2); }
+  :global(.markdown p) { margin:0.4rem 0; }
+  :global(.markdown ul, .markdown ol) { margin:0.4rem 0; padding-left:1.5rem; }
+  :global(.markdown li) { margin:0.15rem 0; }
+  :global(.markdown strong) { color:var(--text); font-weight:600; }
+  :global(.markdown a) { color:var(--blue); text-decoration:none; }
+  :global(.markdown a:hover) { text-decoration:underline; }
+  :global(.markdown hr) { border:none; border-top:1px solid var(--border); margin:0.8rem 0; }
+  :global(.markdown blockquote) { margin:0.5rem 0; padding:0.4rem 0.8rem; border-left:3px solid var(--border2); color:var(--text2); background:var(--bg3); border-radius:0 6px 6px 0; }
+  :global(.markdown table) { width:100%; border-collapse:collapse; margin:0.5rem 0; font-size:0.8rem; }
+  :global(.markdown th) { text-align:left; padding:0.45rem 0.65rem; background:var(--bg3); border:1px solid var(--border); color:var(--text); font-weight:600; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.03em; }
+  :global(.markdown td) { padding:0.4rem 0.65rem; border:1px solid var(--border); color:var(--text2); }
+  :global(.markdown tr:hover td) { background:var(--bg3); }
+  :global(.markdown code) { background:var(--bg3); padding:0.15rem 0.35rem; border-radius:4px; font-size:0.82em; font-family:'JetBrains Mono','Fira Code',monospace; color:var(--cyan); }
+  :global(.markdown pre) { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.75rem; margin:0.5rem 0; overflow-x:auto; }
+  :global(.markdown pre code) { background:none; padding:0; font-size:0.78rem; color:var(--text2); line-height:1.6; }
+  :global(.markdown img) { max-width:100%; border-radius:var(--radius-sm); }
   .review-banner { padding:0.75rem 1rem; font-size:0.8rem; line-height:1.5; border-top:1px solid var(--border); }
   .review-banner.pass { background:rgba(94,232,160,0.05); color:var(--green); }
   .review-banner.fail { background:rgba(248,113,113,0.05); color:var(--red); }
