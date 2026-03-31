@@ -15,7 +15,7 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
           .join('\n\n')}`
       : '';
 
-  const result = await callRawText({
+  const { text, toolUsage } = await callRawText({
     model: req.model,
     system: `あなたはタスク実行エージェントです。割り当てられたタスクを完遂してください。
 ユーザーの元のリクエストはコンテキストとして提供されます。自分に割り当てられたタスクに集中し、高品質で完全な結果を日本語で出力してください。
@@ -24,6 +24,10 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     allowedTools: req.allowedTools,
   });
 
-  log.info('Executor completed', { taskId: req.task.id, resultLength: result.length });
-  return { taskId: req.task.id, result };
+  log.info('Executor completed', {
+    taskId: req.task.id,
+    resultLength: text.length,
+    toolUsageCount: toolUsage.length,
+  });
+  return { taskId: req.task.id, result: text, toolUsage };
 }

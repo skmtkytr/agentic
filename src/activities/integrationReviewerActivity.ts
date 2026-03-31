@@ -37,7 +37,10 @@ notes と revisedResponse は日本語で記述してください。
     userContent: `元のリクエスト: ${req.originalPrompt}
 
 レビュー対象の統合回答:
-${req.integratedResponse}`,
+${req.integratedResponse}
+${req.toolEvidence && req.toolEvidence.length > 0
+  ? `\nタスク実行時のツール使用証跡:\n${req.toolEvidence.map((e) => `- [${e.taskDescription}] ${e.tool}: 入力="${e.input}" → 出力="${e.output.slice(0, 200)}"`).join('\n')}`
+  : ''}`,
   });
 
   log.info('Integration reviewer completed', { passed: result.passed });

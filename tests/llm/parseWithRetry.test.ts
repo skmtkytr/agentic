@@ -139,7 +139,7 @@ describe('callStructured', () => {
 describe('callRawText', () => {
   beforeEach(() => mockQuery.mockReset());
 
-  it('returns raw text result', async () => {
+  it('returns raw text result with empty toolUsage', async () => {
     setupQueryMock('Hello world');
 
     const result = await callRawText({
@@ -147,7 +147,8 @@ describe('callRawText', () => {
       userContent: 'say hello',
     });
 
-    expect(result).toBe('Hello world');
+    expect(result.text).toBe('Hello world');
+    expect(result.toolUsage).toEqual([]);
   });
 
   it('returns empty string when no result message', async () => {
@@ -155,7 +156,47 @@ describe('callRawText', () => {
 
     const result = await callRawText({ system: 'test', userContent: 'test' });
 
-    expect(result).toBe('');
+    expect(result.text).toBe('');
+    expect(result.toolUsage).toEqual([]);
+  });
+
+  it('extracts tool usage from query messages', async () => {
+    mockQuery.mockImplementation(async function* () {
+      yield {
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'WebFetch',
+            input: { url: 'https://example.com/api' },
+          }],
+        },
+      } as never;
+      yield {
+        type: 'user',
+        message: {
+          content: [{
+            type: 'tool_result',
+            tool_use_id: 'toolu_1',
+            content: '{"data": "value"}',
+          }],
+        },
+      } as never;
+      yield { result: 'Result text' } as never;
+    } as any);
+
+    const result = await callRawText({
+      system: 'test',
+      userContent: 'fetch data',
+      allowedTools: ['WebFetch'],
+    });
+
+    expect(result.text).toBe('Result text');
+    expect(result.toolUsage).toHaveLength(1);
+    expect(result.toolUsage[0].tool).toBe('WebFetch');
+    expect(result.toolUsage[0].input).toBe('https://example.com/api');
+    expect(result.toolUsage[0].output).toBe('{"data": "value"}');
   });
 
   it('uses tools: [] when no allowedTools specified', async () => {

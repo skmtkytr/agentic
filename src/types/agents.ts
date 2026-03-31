@@ -1,5 +1,19 @@
 import type { Task, TaskPlan, ValidationResult } from './task';
 
+export interface ToolUsageRecord {
+  tool: string;
+  input: string;
+  output: string;
+  timestamp: number;
+}
+
+export interface ToolEvidenceEntry {
+  taskDescription: string;
+  tool: string;
+  input: string;
+  output: string;
+}
+
 export interface PlannerRequest {
   prompt: string;
   model: string;
@@ -29,6 +43,7 @@ export interface ExecutorRequest {
 export interface ExecutorResponse {
   taskId: string;
   result: string;
+  toolUsage?: ToolUsageRecord[];
 }
 
 export interface ReviewerRequest {
@@ -36,6 +51,7 @@ export interface ReviewerRequest {
   result: string;
   originalPrompt: string;
   model: string;
+  toolUsage?: ToolUsageRecord[];
 }
 
 export interface ReviewerResponse {
@@ -60,6 +76,7 @@ export interface IntegrationReviewerRequest {
   originalPrompt: string;
   integratedResponse: string;
   model: string;
+  toolEvidence?: ToolEvidenceEntry[];
 }
 
 export interface IntegrationReviewerResponse {

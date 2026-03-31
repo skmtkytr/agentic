@@ -9,7 +9,7 @@ export async function integratorActivity(req: IntegratorRequest): Promise<Integr
     .map((t) => `### ${t.description}\n${t.result ?? '(no result)'}`)
     .join('\n\n');
 
-  const integratedResponse = await callRawText({
+  const { text: integratedResponse } = await callRawText({
     model: req.model,
     system: `あなたは統合エージェントです。複数のタスクの実行結果を、ユーザーの元のリクエストに直接対応する一貫した高品質な回答に統合してください。
 

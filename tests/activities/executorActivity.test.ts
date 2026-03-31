@@ -1,5 +1,5 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
-import type { ExecutorResponse } from '../../src/types/agents';
+import type { ExecutorResponse, ToolUsageRecord } from '../../src/types/agents';
 import type { Task } from '../../src/types/task';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -93,6 +93,62 @@ describe('executorActivity', () => {
     const opts = mockQuery.mock.calls[0][0].options;
     expect(opts?.tools).toEqual([]);
     expect(opts).not.toHaveProperty('allowedTools');
+  });
+
+  it('extracts tool usage from query messages', async () => {
+    // Simulate query yielding tool_use and tool_result messages before result
+    mockQuery.mockImplementation(async function* () {
+      yield {
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'WebFetch',
+            input: { url: 'https://api.example.com/data' },
+          }],
+        },
+      } as never;
+      yield {
+        type: 'user',
+        message: {
+          content: [{
+            type: 'tool_result',
+            tool_use_id: 'toolu_1',
+            content: '{"price": 2047}',
+          }],
+        },
+      } as never;
+      yield { result: 'ETH price is $2,047' } as never;
+    } as any);
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Get ETH price',
+      model: 'claude-opus-4-6',
+      allowedTools: ['WebFetch'],
+    })) as ExecutorResponse;
+
+    expect(result.result).toBe('ETH price is $2,047');
+    expect(result.toolUsage).toBeDefined();
+    expect(result.toolUsage).toHaveLength(1);
+    expect(result.toolUsage![0].tool).toBe('WebFetch');
+    expect(result.toolUsage![0].input).toBe('https://api.example.com/data');
+    expect(result.toolUsage![0].output).toBe('{"price": 2047}');
+  });
+
+  it('returns empty toolUsage when no tools are used', async () => {
+    setupQueryMock('plain text result');
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Simple task',
+      model: 'claude-opus-4-6',
+    })) as ExecutorResponse;
+
+    expect(result.toolUsage).toEqual([]);
   });
 
   it('returns empty string when no result', async () => {

@@ -1,12 +1,18 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { log } from '@temporalio/activity';
+import type { ToolUsageRecord } from '../types/agents';
 
 export interface LLMCallOptions {
   model?: string;
   system: string;
   userContent: string;
   allowedTools?: string[];
+}
+
+export interface RawTextResult {
+  text: string;
+  toolUsage: ToolUsageRecord[];
 }
 
 /**
@@ -63,11 +69,15 @@ export async function callStructured<T extends z.ZodTypeAny>(
 }
 
 /**
- * Claude Code SDK の query() でモデルを呼び出し、プレーンテキストを返す。
+ * Claude Code SDK の query() でモデルを呼び出し、プレーンテキストとツール使用記録を返す。
  * executor / integrator など JSON が不要なケースに使う。
  */
-export async function callRawText(opts: LLMCallOptions): Promise<string> {
+export async function callRawText(opts: LLMCallOptions): Promise<RawTextResult> {
   let resultText = '';
+  const toolUsage: ToolUsageRecord[] = [];
+
+  // Pending tool_use calls waiting for their tool_result
+  const pendingTools = new Map<string, { tool: string; input: string; timestamp: number }>();
 
   const hasTools = opts.allowedTools && opts.allowedTools.length > 0;
 
@@ -75,8 +85,6 @@ export async function callRawText(opts: LLMCallOptions): Promise<string> {
     prompt: opts.userContent,
     options: {
       systemPrompt: opts.system,
-      // tools: available tool set. Empty = no tools visible to Claude.
-      // allowedTools: pre-approved subset. permissionMode dontAsk = deny unapproved.
       ...(hasTools
         ? { allowedTools: opts.allowedTools, permissionMode: 'dontAsk' as const }
         : { tools: [], permissionMode: 'dontAsk' as const }),
@@ -86,7 +94,45 @@ export async function callRawText(opts: LLMCallOptions): Promise<string> {
     if ('result' in message) {
       resultText = message.result;
     }
+
+    // Extract tool usage from assistant messages
+    const msg = message as any;
+    if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_use') {
+          const inputStr = typeof block.input === 'string'
+            ? block.input
+            : (block.input?.url ?? block.input?.command ?? JSON.stringify(block.input));
+          pendingTools.set(block.id, {
+            tool: block.name,
+            input: inputStr,
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
+
+    // Match tool_result to pending tool_use
+    if (msg.type === 'user' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'tool_result' && block.tool_use_id) {
+          const pending = pendingTools.get(block.tool_use_id);
+          if (pending) {
+            const outputStr = typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content);
+            toolUsage.push({
+              tool: pending.tool,
+              input: pending.input,
+              output: outputStr.slice(0, 500),
+              timestamp: pending.timestamp,
+            });
+            pendingTools.delete(block.tool_use_id);
+          }
+        }
+      }
+    }
   }
 
-  return resultText;
+  return { text: resultText, toolUsage };
 }

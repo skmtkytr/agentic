@@ -284,6 +284,53 @@ describe('agenticWorkflow', () => {
     expect(receivedTools).toEqual(['Read', 'Grep']);
   }, 60_000);
 
+  it('passes executor toolUsage to reviewer', async () => {
+    let reviewerReceivedToolUsage: unknown;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => ({
+        taskId: req.task.id,
+        result: 'ETH is $2,047',
+        toolUsage: [
+          { tool: 'WebFetch', input: 'https://api.example.com', output: '{"usd":2047}', timestamp: Date.now() },
+        ],
+      }),
+      reviewerActivity: async (req) => {
+        reviewerReceivedToolUsage = req.toolUsage;
+        return { taskId: req.task.id, passed: true, notes: 'ok' };
+      },
+    };
+
+    await runWorkflow(activities);
+    expect(reviewerReceivedToolUsage).toBeDefined();
+    expect(reviewerReceivedToolUsage).toHaveLength(1);
+    expect((reviewerReceivedToolUsage as any)[0].tool).toBe('WebFetch');
+  }, 60_000);
+
+  it('passes aggregated tool evidence to integration reviewer', async () => {
+    let integrationReviewerReceivedEvidence: unknown;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => ({
+        taskId: req.task.id,
+        result: 'result',
+        toolUsage: [
+          { tool: 'WebSearch', input: 'ETH price', output: 'search results', timestamp: Date.now() },
+        ],
+      }),
+      integrationReviewerActivity: async (req) => {
+        integrationReviewerReceivedEvidence = req.toolEvidence;
+        return { passed: true, notes: 'ok' };
+      },
+    };
+
+    await runWorkflow(activities);
+    expect(integrationReviewerReceivedEvidence).toBeDefined();
+    expect((integrationReviewerReceivedEvidence as any[]).length).toBeGreaterThan(0);
+  }, 60_000);
+
   it('handles mixed pass/reject tasks correctly', async () => {
     const passId = randomUUID();
     const failId = randomUUID();

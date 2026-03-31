@@ -8,6 +8,7 @@ import {
 } from '@temporalio/workflow';
 import type { Activities } from '../activities/index';
 import type { Task } from '../types/task';
+import type { ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
 import type { ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
 
 // --- Activity proxies with distinct retry policies ---
@@ -56,6 +57,7 @@ export const cancelSignal = defineSignal('cancel');
 async function executeDag(
   tasks: Task[],
   completedResults: Map<string, string>,
+  allToolEvidence: ToolEvidenceEntry[],
   state: WorkflowState,
   originalPrompt: string,
   model: string,
@@ -104,7 +106,20 @@ async function executeDag(
 
         task.result = execResult.result;
         task.status = 'executed';
-        emit('executor_done', `実行完了: ${task.description}`, task.id, task.description);
+        const taskToolUsage = execResult.toolUsage ?? [];
+        if (taskToolUsage.length > 0) {
+          emit('executor_done', `実行完了: ${task.description} (ツール${taskToolUsage.length}件使用)`, task.id, task.description);
+          for (const tu of taskToolUsage) {
+            allToolEvidence.push({
+              taskDescription: task.description,
+              tool: tu.tool,
+              input: tu.input,
+              output: tu.output,
+            });
+          }
+        } else {
+          emit('executor_done', `実行完了: ${task.description}`, task.id, task.description);
+        }
 
         emit('reviewer_start', `レビュー開始: ${task.description}`, task.id, task.description);
         const review = await reviewerActivity({
@@ -112,6 +127,7 @@ async function executeDag(
           result: execResult.result,
           originalPrompt,
           model,
+          toolUsage: taskToolUsage,
         });
 
         task.reviewPassed = review.passed;
@@ -218,7 +234,8 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
   log.info('Starting execution phase');
 
   const completedResults = new Map<string, string>();
-  await executeDag(tasks, completedResults, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools);
+  const allToolEvidence: ToolEvidenceEntry[] = [];
+  await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools);
 
   if (cancelled) {
     throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
@@ -250,6 +267,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     originalPrompt: input.prompt,
     integratedResponse,
     model,
+    toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
   });
   emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);
 

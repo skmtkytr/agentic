@@ -115,6 +115,27 @@ describe('reviewerActivity', () => {
     expect(result.taskId).toBe('my-task-id');
   });
 
+  it('includes tool usage evidence in prompt when provided', async () => {
+    setupQueryMock(
+      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Verified with tool evidence' }),
+    );
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'ETH is $2,047',
+      originalPrompt: 'Get ETH price',
+      model: 'claude-opus-4-6',
+      toolUsage: [
+        { tool: 'WebFetch', input: 'https://api.coingecko.com/...', output: '{"usd":2047}', timestamp: 1234567890 },
+      ],
+    });
+
+    const prompt = mockQuery.mock.calls[0][0].prompt;
+    expect(prompt).toContain('WebFetch');
+    expect(prompt).toContain('https://api.coingecko.com/');
+    expect(prompt).toContain('{"usd":2047}');
+  });
+
   it('throws on invalid JSON', async () => {
     setupQueryMock('not json');
 

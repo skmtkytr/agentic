@@ -35,7 +35,9 @@ notes と revisedResult は日本語で記述してください。
 
 レビュー対象の実行結果:
 ${req.result}
-
+${req.toolUsage && req.toolUsage.length > 0
+  ? `\nツール使用の証跡:\n${req.toolUsage.map((t) => `- ${t.tool}: 入力="${t.input}" → 出力="${t.output.slice(0, 200)}"`).join('\n')}`
+  : ''}
 タスクID: ${req.task.id}`,
   });
 
