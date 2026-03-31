@@ -475,6 +475,74 @@ describe('agenticWorkflow', () => {
     expect(result.pipelineAttempt).toBe(1);
   }, 60_000);
 
+  it('retries rejected task within executor (task-level retry)', async () => {
+    let execAttempts = 0;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => {
+        execAttempts++;
+        return { taskId: req.task.id, result: `attempt ${execAttempts}` };
+      },
+      reviewerActivity: async (req) => {
+        // Reject first attempt, pass second
+        if (execAttempts <= 1) {
+          return { taskId: req.task.id, passed: false, notes: 'Not good enough' };
+        }
+        return { taskId: req.task.id, passed: true, notes: 'Good on retry' };
+      },
+    };
+
+    const result = await runWorkflow(activities, {
+      prompt: 'Test task retry',
+      maxTaskRetries: 2,
+    });
+
+    expect(execAttempts).toBe(2);
+    expect(result.tasks[0].reviewPassed).toBe(true);
+    expect(result.tasks[0].result).toBe('attempt 2');
+  }, 60_000);
+
+  it('marks task as rejected after exhausting maxTaskRetries', async () => {
+    const activities: Activities = {
+      ...defaultMockActivities,
+      reviewerActivity: async (req) => ({
+        taskId: req.task.id,
+        passed: false,
+        notes: 'Always bad',
+      }),
+    };
+
+    const result = await runWorkflow(activities, {
+      prompt: 'Test exhaust task retries',
+      maxTaskRetries: 1,
+    });
+
+    // 2 attempts (initial + 1 retry), still rejected
+    expect(result.tasks[0].reviewPassed).toBe(false);
+    expect(result.tasks[0].status).toBe('rejected');
+  }, 60_000);
+
+  it('does not retry tasks when maxTaskRetries is 0 (default)', async () => {
+    let execCalls = 0;
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => {
+        execCalls++;
+        return { taskId: req.task.id, result: 'done' };
+      },
+      reviewerActivity: async (req) => ({
+        taskId: req.task.id,
+        passed: false,
+        notes: 'bad',
+      }),
+    };
+
+    const result = await runWorkflow(activities, { prompt: 'No task retry' });
+    expect(execCalls).toBe(1);
+    expect(result.tasks[0].status).toBe('rejected');
+  }, 60_000);
+
   it('passes previous failure notes to planner on retry', async () => {
     let plannerPrompts: string[] = [];
 

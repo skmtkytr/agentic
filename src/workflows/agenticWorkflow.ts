@@ -64,6 +64,7 @@ async function executeDag(
   maxParallelTasks: number,
   emit: (kind: ActivityEventKind, summary: string, taskId?: string, taskDescription?: string) => void,
   allowedTools?: string[],
+  maxTaskRetries: number = 0,
 ): Promise<void> {
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const done = new Set<string>();
@@ -87,61 +88,83 @@ async function executeDag(
 
     await Promise.all(
       ready.map(async (task) => {
-        task.status = 'executing';
-        emit('executor_start', `実行開始: ${task.description}`, task.id, task.description);
+        let taskAttempt = 0;
+        let lastReviewNotes = '';
 
-        const context = [...completedResults.entries()].map(([taskId, result]) => ({
-          taskId,
-          description: taskMap.get(taskId)!.description,
-          result,
-        }));
+        while (taskAttempt <= maxTaskRetries) {
+          taskAttempt++;
+          task.status = 'executing';
+          const attemptSuffix = taskAttempt > 1 ? ` (試行${taskAttempt})` : '';
+          emit('executor_start', `実行開始${attemptSuffix}: ${task.description}`, task.id, task.description);
 
-        const execResult = await executorActivity({
-          task,
-          completedTaskResults: context,
-          originalPrompt,
-          model,
-          allowedTools,
-        });
+          const context = [...completedResults.entries()].map(([taskId, result]) => ({
+            taskId,
+            description: taskMap.get(taskId)!.description,
+            result,
+          }));
 
-        task.result = execResult.result;
-        task.status = 'executed';
-        const taskToolUsage = execResult.toolUsage ?? [];
-        if (taskToolUsage.length > 0) {
-          emit('executor_done', `実行完了: ${task.description} (ツール${taskToolUsage.length}件使用)`, task.id, task.description);
-          for (const tu of taskToolUsage) {
-            allToolEvidence.push({
-              taskDescription: task.description,
-              tool: tu.tool,
-              input: tu.input,
-              output: tu.output,
-            });
+          // On retry, include previous review feedback in the task description context
+          const retryContext = taskAttempt > 1
+            ? `\n\n[前回の実行がレビューで却下されました。フィードバック: ${lastReviewNotes}]`
+            : '';
+
+          const execResult = await executorActivity({
+            task: retryContext
+              ? { ...task, description: task.description + retryContext }
+              : task,
+            completedTaskResults: context,
+            originalPrompt,
+            model,
+            allowedTools,
+          });
+
+          task.result = execResult.result;
+          task.status = 'executed';
+          const taskToolUsage = execResult.toolUsage ?? [];
+          if (taskToolUsage.length > 0) {
+            emit('executor_done', `実行完了${attemptSuffix}: ${task.description} (ツール${taskToolUsage.length}件使用)`, task.id, task.description);
+            for (const tu of taskToolUsage) {
+              allToolEvidence.push({
+                taskDescription: task.description,
+                tool: tu.tool,
+                input: tu.input,
+                output: tu.output,
+              });
+            }
+          } else {
+            emit('executor_done', `実行完了${attemptSuffix}: ${task.description}`, task.id, task.description);
           }
-        } else {
-          emit('executor_done', `実行完了: ${task.description}`, task.id, task.description);
-        }
 
-        emit('reviewer_start', `レビュー開始: ${task.description}`, task.id, task.description);
-        const review = await reviewerActivity({
-          task,
-          result: execResult.result,
-          originalPrompt,
-          model,
-          toolUsage: taskToolUsage,
-        });
+          emit('reviewer_start', `レビュー開始${attemptSuffix}: ${task.description}`, task.id, task.description);
+          const review = await reviewerActivity({
+            task,
+            result: execResult.result,
+            originalPrompt,
+            model,
+            toolUsage: taskToolUsage,
+          });
 
-        task.reviewPassed = review.passed;
-        task.reviewNotes = review.notes;
-        if (review.revisedResult) {
-          task.result = review.revisedResult;
+          task.reviewPassed = review.passed;
+          task.reviewNotes = review.notes;
+          if (review.revisedResult) {
+            task.result = review.revisedResult;
+          }
+
+          if (review.passed) {
+            task.status = 'reviewed';
+            emit('reviewer_done', `レビュー通過${attemptSuffix}: ${task.description}`, task.id, task.description);
+            break;
+          }
+
+          // Review rejected
+          lastReviewNotes = review.notes;
+          if (taskAttempt > maxTaskRetries) {
+            task.status = 'rejected';
+            emit('reviewer_done', `レビュー却下 (リトライ上限): ${task.description} — ${review.notes.slice(0, 80)}`, task.id, task.description);
+          } else {
+            emit('task_retry', `タスクリトライ (${taskAttempt}→${taskAttempt + 1}): ${task.description} — ${review.notes.slice(0, 60)}`, task.id, task.description);
+          }
         }
-        task.status = review.passed ? 'reviewed' : 'rejected';
-        emit(
-          'reviewer_done',
-          `レビュー${review.passed ? '通過' : '却下'}: ${task.description}${review.notes ? ` — ${review.notes.slice(0, 80)}` : ''}`,
-          task.id,
-          task.description,
-        );
 
         completedResults.set(task.id, task.result!);
         done.add(task.id);
@@ -259,7 +282,8 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
 
     const completedResults = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
-    await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools);
+    const maxTaskRetries = input.maxTaskRetries ?? 0;
+    await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools, maxTaskRetries);
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });

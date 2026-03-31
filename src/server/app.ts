@@ -22,12 +22,13 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
 
   api.post('/run', async (req, res) => {
     try {
-      const { prompt, model, maxParallelTasks, allowedTools, maxPipelineRetries } = req.body as {
+      const { prompt, model, maxParallelTasks, allowedTools, maxPipelineRetries, maxTaskRetries } = req.body as {
         prompt?: string;
         model?: string;
         maxParallelTasks?: number;
         allowedTools?: string[];
         maxPipelineRetries?: number;
+        maxTaskRetries?: number;
       };
 
       if (!prompt || typeof prompt !== 'string') {
@@ -43,6 +44,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         maxParallelTasks: maxParallelTasks ?? 5,
         allowedTools,
         maxPipelineRetries: maxPipelineRetries ?? 0,
+        maxTaskRetries: maxTaskRetries ?? 0,
       };
 
       await client.workflow.start(agenticWorkflow, {

@@ -15,6 +15,7 @@ export interface WorkflowInput {
   maxParallelTasks?: number;
   allowedTools?: string[];
   maxPipelineRetries?: number;
+  maxTaskRetries?: number;
 }
 
 export interface WorkflowOutput {
@@ -39,7 +40,8 @@ export type ActivityEventKind =
   | 'integrator_done'
   | 'integration_reviewer_start'
   | 'integration_reviewer_done'
-  | 'pipeline_retry';
+  | 'pipeline_retry'
+  | 'task_retry';
 
 export interface ActivityEvent {
   kind: ActivityEventKind;

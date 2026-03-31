@@ -44,6 +44,7 @@
   let prompt = $state('');
   let model = $state('claude-opus-4-6');
   let maxRetries = $state(0);
+  let maxTaskRetries = $state(0);
   let enabledTools = $state<Set<string>>(new Set());
   let workflowId = $state<string | null>(null);
   let wfState = $state<WorkflowState | null>(null);
@@ -79,7 +80,7 @@
   function scrollEventLog() { if(eventLogEl)eventLogEl.scrollTop=eventLogEl.scrollHeight; }
   async function submit() {
     if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;
-    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined,maxPipelineRetries:maxRetries||undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
+    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined,maxPipelineRetries:maxRetries||undefined,maxTaskRetries:maxTaskRetries||undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
   }
   async function fetchResult(id: string) {
     try { const r=await fetch(`/api/result/${id}`);if(!r.ok)throw new Error(r.statusText);result=await r.json();if(!wfState)wfState={phase:'complete',totalTasks:result!.tasks.length,completedTasks:result!.tasks.length,currentlyExecuting:[],events:[],tasks:result!.tasks}; } catch(e){error=(e as Error).message;} finally{loading=false;}
@@ -159,10 +160,20 @@
               <select bind:value={model} disabled={loading}>
                 <option value="claude-opus-4-6">Opus 4.6</option>
                 <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
               </select>
               <div class="retry-input">
-                <label for="retries">リトライ</label>
+                <label for="retries">全体リトライ</label>
                 <select id="retries" bind:value={maxRetries} disabled={loading}>
+                  <option value={0}>なし</option>
+                  <option value={1}>1回</option>
+                  <option value={2}>2回</option>
+                  <option value={3}>3回</option>
+                </select>
+              </div>
+              <div class="retry-input">
+                <label for="task-retries">タスクリトライ</label>
+                <select id="task-retries" bind:value={maxTaskRetries} disabled={loading}>
                   <option value={0}>なし</option>
                   <option value={1}>1回</option>
                   <option value={2}>2回</option>
