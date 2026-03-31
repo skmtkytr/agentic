@@ -47,6 +47,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         taskQueue: 'agentic-pipeline',
         workflowId,
         args: [input],
+        memo: { prompt: prompt.slice(0, 200) },
       });
 
       knownWorkflows.unshift({
@@ -79,11 +80,13 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         query: "WorkflowType = 'agenticWorkflow'",
       })) {
         if (count >= 50) break;
+        // Try memo first, then in-memory cache
+        const memoPrompt = (wf.memo as any)?.prompt as string | undefined;
         workflows.push({
           workflowId: wf.workflowId,
           status: wf.status.name,
           startTime: wf.startTime.toISOString(),
-          prompt: promptMap.get(wf.workflowId)?.slice(0, 80),
+          prompt: (memoPrompt ?? promptMap.get(wf.workflowId))?.slice(0, 80),
         });
         count++;
       }

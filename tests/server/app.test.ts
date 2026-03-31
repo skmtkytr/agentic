@@ -103,6 +103,18 @@ describe('Server API', () => {
       expect(knownWorkflows[0].workflowId).toMatch(/^agentic-/);
     });
 
+    it('stores prompt in workflow memo', async () => {
+      const startFn = jest.fn().mockResolvedValue(undefined);
+      const mockClient = makeMockClient({ start: startFn });
+      const { app } = createApp(async () => mockClient);
+
+      await request(app)
+        .post('/api/run')
+        .send({ prompt: 'My test prompt' });
+
+      expect(startFn.mock.calls[0][1].memo).toEqual({ prompt: 'My test prompt' });
+    });
+
     it('passes allowedTools to workflow input', async () => {
       const startFn = jest.fn().mockResolvedValue(undefined);
       const mockClient = makeMockClient({ start: startFn });
@@ -162,7 +174,24 @@ describe('Server API', () => {
       expect(res.body[0].status).toBe('COMPLETED');
     });
 
-    it('includes prompt from knownWorkflows when available', async () => {
+    it('reads prompt from Temporal memo', async () => {
+      const mockClient = makeMockClient({
+        list: () => (async function* () {
+          yield {
+            workflowId: 'agentic-memo-test',
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            memo: { prompt: 'ETH価格を教えて' },
+          };
+        })(),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflows');
+      expect(res.body[0].prompt).toBe('ETH価格を教えて');
+    });
+
+    it('falls back to knownWorkflows when memo has no prompt', async () => {
       const mockClient = makeMockClient({
         list: () => (async function* () {
           yield {
