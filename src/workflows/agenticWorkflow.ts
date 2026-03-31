@@ -15,18 +15,18 @@ import type { ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, W
 
 // 30 min timeout — LLM calls can take minutes for complex tasks.
 const { plannerActivity, validatorActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '30 minutes',
+  startToCloseTimeout: '24 hours',
   retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
 });
 
 const { executorActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '30 minutes',
+  startToCloseTimeout: '24 hours',
   retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
 });
 
 const { reviewerActivity, integratorActivity, integrationReviewerActivity } =
   proxyActivities<Activities>({
-    startToCloseTimeout: '30 minutes',
+    startToCloseTimeout: '24 hours',
     retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
   });
 
