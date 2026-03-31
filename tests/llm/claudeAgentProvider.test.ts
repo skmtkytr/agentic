@@ -79,4 +79,33 @@ describe('ClaudeAgentProvider', () => {
     const result = await provider.call({ system: 'sys', prompt: 'no tools' });
     expect(result.toolUsage).toEqual([]);
   });
+
+  it('throws on timeout when query hangs', async () => {
+    // Create an async generator that yields nothing and hangs via a long delay
+    mockQuery.mockImplementation(() => {
+      const neverEnding = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => new Promise<{ done: boolean; value: never }>(() => {}), // never resolves
+            return: async () => ({ done: true as const, value: undefined as never }),
+          };
+        },
+      };
+      return neverEnding as any;
+    });
+
+    const shortTimeout = new ClaudeAgentProvider({ timeoutMs: 100 });
+    await expect(shortTimeout.call({ system: 'sys', prompt: 'hang' }))
+      .rejects.toThrow(/timed out/i);
+  }, 3000);
+
+  it('uses default 10 minute timeout', () => {
+    const p = new ClaudeAgentProvider();
+    expect(p.timeoutMs).toBe(10 * 60 * 1000);
+  });
+
+  it('accepts custom timeout', () => {
+    const p = new ClaudeAgentProvider({ timeoutMs: 30000 });
+    expect(p.timeoutMs).toBe(30000);
+  });
 });

@@ -164,7 +164,7 @@ async function executeDag(
 export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOutput> {
   const startTime = Date.now();
   const model = input.model ?? 'claude-opus-4-6';
-  const maxParallelTasks = input.maxParallelTasks ?? 5;
+  const maxParallelTasks = input.maxParallelTasks ?? 3;
   const maxPipelineRetries = input.maxPipelineRetries ?? 0;
 
   let cancelled = false;

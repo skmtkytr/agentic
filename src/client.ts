@@ -21,7 +21,7 @@ async function main() {
   const input: WorkflowInput = {
     prompt,
     model: process.env.CLAUDE_MODEL ?? 'claude-opus-4-6',
-    maxParallelTasks: 5,
+    maxParallelTasks: 3,
   };
 
   console.log(`\nStarting workflow: ${workflowId}`);

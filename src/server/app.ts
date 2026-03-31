@@ -41,7 +41,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
       const input: WorkflowInput = {
         prompt,
         model: model ?? process.env.CLAUDE_MODEL ?? 'claude-opus-4-6',
-        maxParallelTasks: maxParallelTasks ?? 5,
+        maxParallelTasks: maxParallelTasks ?? 3,
         allowedTools,
         maxPipelineRetries: maxPipelineRetries ?? 0,
         maxTaskRetries: maxTaskRetries ?? 0,
