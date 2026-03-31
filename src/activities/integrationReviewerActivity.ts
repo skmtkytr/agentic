@@ -9,11 +9,33 @@ import type {
 export async function integrationReviewerActivity(
   req: IntegrationReviewerRequest,
 ): Promise<IntegrationReviewerResponse> {
-  log.info('Integration reviewer started');
+  log.info('Integration reviewer started', {
+    responseLength: req.integratedResponse.length,
+    toolEvidenceCount: req.toolEvidence?.length ?? 0,
+  });
+
+  // Truncate long responses to avoid exceeding context limits
+  const MAX_RESPONSE_CHARS = 15000;
+  let responseForReview = req.integratedResponse;
+  let truncated = false;
+  if (responseForReview.length > MAX_RESPONSE_CHARS) {
+    truncated = true;
+    responseForReview = responseForReview.slice(0, MAX_RESPONSE_CHARS) + '\n\n[... 以下省略（全文が長すぎるため先頭部分のみレビュー対象）...]';
+    log.warn('Integrated response truncated for review', {
+      original: req.integratedResponse.length,
+      truncated: responseForReview.length,
+    });
+  }
+
+  // Limit tool evidence to summary
+  const MAX_EVIDENCE = 10;
+  const toolEvidenceSection = req.toolEvidence && req.toolEvidence.length > 0
+    ? `\nツール使用証跡 (${req.toolEvidence.length}件):\n${req.toolEvidence.slice(0, MAX_EVIDENCE).map((e) => `- [${e.taskDescription.slice(0, 40)}] ${e.tool}: ${e.input.slice(0, 60)}`).join('\n')}${req.toolEvidence.length > MAX_EVIDENCE ? `\n... 他${req.toolEvidence.length - MAX_EVIDENCE}件` : ''}`
+    : '';
 
   const result = await callStructured(IntegrationReviewerResultSchema, {
     model: req.model,
-    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。
+    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。${truncated ? '\n\n注意: 回答が非常に長いため、先頭部分のみ提示されています。構造・品質・方向性を中心にレビューしてください。' : ''}
 
 チェック項目:
 1. 回答が元のリクエストに対して完全かつ正確に対応しているか
@@ -40,10 +62,8 @@ export async function integrationReviewerActivity(
     userContent: `元のリクエスト: ${req.originalPrompt}
 
 レビュー対象の統合回答:
-${req.integratedResponse}
-${req.toolEvidence && req.toolEvidence.length > 0
-  ? `\nタスク実行時のツール使用証跡:\n${req.toolEvidence.map((e) => `- [${e.taskDescription}] ${e.tool}: 入力="${e.input}" → 出力="${e.output.slice(0, 200)}"`).join('\n')}`
-  : ''}`,
+${responseForReview}
+${toolEvidenceSection}`,
   });
 
   log.info('Integration reviewer completed', { passed: result.passed });
