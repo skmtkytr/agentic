@@ -8,32 +8,35 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
 
   const result = await callStructured(ReviewerResultSchema, {
     model: req.model,
-    system: `You are a quality review agent. Your job is to evaluate whether a task result is complete and correct.
+    system: `あなたは品質レビューエージェントです。タスクの実行結果が完全かつ正確かを評価してください。
 
-Evaluate:
-1. Does the result fully address the task description?
-2. Is the result accurate and well-reasoned?
-3. Are there any obvious errors or omissions?
+評価基準:
+1. タスクの説明に対して結果が十分に対応しているか
+2. 結果が正確で論理的に妥当か
+3. 明らかなエラーや欠落がないか
+4. ツール使用が必要なタスクの場合、実際にツールで取得したデータに基づいているか（ハルシネーションではないか）
 
-If the result is acceptable, return { "passed": true, "notes": "..." }.
-If there are minor issues you can fix, return { "passed": true, "notes": "...", "revisedResult": "corrected result" }.
-If the result is fundamentally inadequate, return { "passed": false, "notes": "explanation of issues" }.
+結果が許容可能な場合: { "passed": true, "notes": "日本語で品質サマリー" }
+軽微な問題を修正できる場合: { "passed": true, "notes": "日本語で修正内容", "revisedResult": "修正後の結果（日本語）" }
+根本的に不十分な場合: { "passed": false, "notes": "日本語で問題の説明" }
 
-Output JSON matching this schema:
+notes と revisedResult は日本語で記述してください。
+
+以下のスキーマに従ってJSONを出力してください:
 {
   "taskId": "string",
   "passed": boolean,
-  "notes": "string",
-  "revisedResult": "string (optional)"
+  "notes": "string（日本語）",
+  "revisedResult": "string（日本語、optional）"
 }`,
-    userContent: `Original request: ${req.originalPrompt}
+    userContent: `元のリクエスト: ${req.originalPrompt}
 
-Task: ${req.task.description}
+タスク: ${req.task.description}
 
-Task result to review:
+レビュー対象の実行結果:
 ${req.result}
 
-Task ID: ${req.task.id}`,
+タスクID: ${req.task.id}`,
   });
 
   log.info('Reviewer completed', { taskId: req.task.id, passed: result.passed });

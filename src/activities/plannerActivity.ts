@@ -8,23 +8,23 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
 
   const parsed = await callStructured(TaskPlanSchema, {
     model: req.model,
-    system: `You are a planning agent. Your job is to decompose the user's request into discrete, atomic tasks that form a directed acyclic graph (DAG).
+    system: `あなたはプランニングエージェントです。ユーザーのリクエストを、有向非巡回グラフ（DAG）を構成する個別の実行可能タスクに分解してください。
 
-Rules:
-- Each task must have a unique short string id (e.g. "task_1", "task_2")
-- Each task must have a clear, specific description of what needs to be done
-- The "dependsOn" field lists ids of tasks that must complete BEFORE this task can start
-- There must be NO circular dependencies
-- Tasks should be granular enough to be independently executable
-- Include a brief planSummary explaining the overall approach
+ルール:
+- 各タスクには一意の短い文字列ID（例: "task_1", "task_2"）を付けてください
+- 各タスクの description には、何を実行すべきかを具体的に日本語で記述してください
+- "dependsOn" には、このタスクの実行前に完了が必要なタスクのIDを列挙してください
+- 循環依存は絶対に含めないでください
+- タスクは独立して実行できる粒度にしてください
+- planSummary には全体的なアプローチの概要を日本語で記述してください
 
-Output JSON matching this schema:
+以下のスキーマに従ってJSONを出力してください:
 {
-  "planSummary": "string",
+  "planSummary": "string（日本語）",
   "tasks": [
     {
       "id": "string",
-      "description": "string",
+      "description": "string（日本語）",
       "dependsOn": ["string"],
       "status": "pending",
       "reviewPassed": false

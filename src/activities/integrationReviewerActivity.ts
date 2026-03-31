@@ -13,27 +13,30 @@ export async function integrationReviewerActivity(
 
   const result = await callStructured(IntegrationReviewerResultSchema, {
     model: req.model,
-    system: `You are a final quality assurance agent. Your job is to review an integrated response against the user's original request.
+    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。
 
-Check:
-1. Does the response fully and accurately address the original request?
-2. Is the response coherent, well-structured, and complete?
-3. Are there any factual errors, contradictions, or significant gaps?
-4. Is the quality suitable for delivery?
+チェック項目:
+1. 回答が元のリクエストに対して完全かつ正確に対応しているか
+2. 回答が一貫性があり、構造化されていて、完全か
+3. 事実誤認、矛盾、重大な欠落がないか
+4. 納品可能な品質か
+5. 回答が日本語で記述されているか
 
-If the response is satisfactory, return { "passed": true, "notes": "brief summary of quality" }.
-If it needs minor improvements you can make, return { "passed": true, "notes": "...", "revisedResponse": "improved version" }.
-If the response has serious quality issues, return { "passed": false, "notes": "explanation" }.
+回答が十分な場合: { "passed": true, "notes": "日本語で品質の概要" }
+軽微な改善が可能な場合: { "passed": true, "notes": "日本語で改善内容", "revisedResponse": "改善後の回答（日本語）" }
+深刻な品質問題がある場合: { "passed": false, "notes": "日本語で問題の説明" }
 
-Output JSON matching this schema:
+notes と revisedResponse は日本語で記述してください。
+
+以下のスキーマに従ってJSONを出力してください:
 {
   "passed": boolean,
-  "notes": "string",
-  "revisedResponse": "string (optional)"
+  "notes": "string（日本語）",
+  "revisedResponse": "string（日本語、optional）"
 }`,
-    userContent: `Original request: ${req.originalPrompt}
+    userContent: `元のリクエスト: ${req.originalPrompt}
 
-Integrated response to review:
+レビュー対象の統合回答:
 ${req.integratedResponse}`,
   });
 

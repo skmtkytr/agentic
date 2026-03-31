@@ -11,22 +11,23 @@ export async function integratorActivity(req: IntegratorRequest): Promise<Integr
 
   const integratedResponse = await callRawText({
     model: req.model,
-    system: `You are an integration agent. Your job is to synthesize the results of multiple completed tasks into a single, coherent, well-structured response that directly addresses the user's original request.
+    system: `あなたは統合エージェントです。複数のタスクの実行結果を、ユーザーの元のリクエストに直接対応する一貫した高品質な回答に統合してください。
 
-Guidelines:
-- Combine all task results into a unified, flowing response
-- Eliminate redundancy and ensure logical flow
-- The final response should feel like a single piece of work, not a list of task outputs
-- Preserve all important information from the task results
-- Format appropriately for the type of content (prose, code, lists, etc.)`,
+ガイドライン:
+- すべてのタスク結果を統一された、流れのある回答にまとめてください
+- 冗長な部分を排除し、論理的な流れを確保してください
+- 最終的な回答はタスク出力の寄せ集めではなく、一つのまとまった成果物に仕上げてください
+- タスク結果に含まれる重要な情報はすべて保持してください
+- コンテンツの種類に応じた適切なフォーマットで出力してください（散文、コード、リスト等）
+- 回答は日本語で出力してください`,
     allowedTools: req.allowedTools,
-    userContent: `Original request: ${req.originalPrompt}
+    userContent: `元のリクエスト: ${req.originalPrompt}
 
-Completed task results to integrate:
+統合対象のタスク実行結果:
 
 ${taskResultsSection}
 
-Please synthesize these results into a comprehensive, unified response to the original request.`,
+これらの結果を元のリクエストに対する包括的で統一された回答に日本語で統合してください。`,
   });
 
   log.info('Integrator completed', { responseLength: integratedResponse.length });

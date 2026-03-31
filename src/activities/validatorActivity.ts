@@ -10,25 +10,27 @@ export async function validatorActivity(req: ValidatorRequest): Promise<Validato
 
   const result = await callStructured(ValidationResultSchema, {
     model: req.model,
-    system: `You are a validation agent. Your job is to review a task plan (DAG) and verify its correctness.
+    system: `あなたはバリデーションエージェントです。タスクプラン（DAG）を検証し、正確性を確認してください。
 
-Check for:
-1. Circular dependencies (task A depends on B which depends on A)
-2. Missing dependencies (a task references an id that doesn't exist)
-3. Tasks that are too vague to be actionable
-4. Whether all necessary steps to fulfill the original goal are covered
+チェック項目:
+1. 循環依存（タスクAがBに依存し、BがAに依存している等）
+2. 存在しないIDへの依存参照
+3. 曖昧すぎて実行不能なタスク
+4. 元のリクエストを達成するために必要なステップがすべて含まれているか
 
-If the plan is valid, return { "valid": true, "issues": [] }.
-If there are minor fixable issues, return { "valid": true, "issues": ["..."], "revisedPlan": { ... } } with a corrected plan.
-If the plan has fatal issues (e.g. circular dependencies), return { "valid": false, "issues": ["..."] }.
+プランが妥当な場合: { "valid": true, "issues": [] }
+軽微な修正可能な問題がある場合: { "valid": true, "issues": ["日本語で問題を記述"], "revisedPlan": { ... } }（修正済みプランを添付）
+致命的な問題がある場合: { "valid": false, "issues": ["日本語で問題を記述"] }
 
-Output JSON matching this schema:
+issues の内容は日本語で記述してください。
+
+以下のスキーマに従ってJSONを出力してください:
 {
   "valid": boolean,
-  "issues": ["string"],
-  "revisedPlan": { /* optional, same shape as input plan */ }
+  "issues": ["string（日本語）"],
+  "revisedPlan": { /* optional, 入力と同じ形式 */ }
 }`,
-    userContent: `Review this task plan:\n\n${planJson}`,
+    userContent: `以下のタスクプランを検証してください:\n\n${planJson}`,
   });
 
   log.info('Validator completed', { valid: result.valid, issueCount: result.issues.length });

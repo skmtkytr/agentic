@@ -17,9 +17,10 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
 
   const result = await callRawText({
     model: req.model,
-    system: `You are a task execution agent. Your job is to complete the specific task assigned to you.
-The user's original request is provided for context. Focus on producing a high-quality, complete result for your assigned task only.${contextSection}`,
-    userContent: `Original request: ${req.originalPrompt}\n\nYour task: ${req.task.description}\n\nPlease complete this task thoroughly.`,
+    system: `あなたはタスク実行エージェントです。割り当てられたタスクを完遂してください。
+ユーザーの元のリクエストはコンテキストとして提供されます。自分に割り当てられたタスクに集中し、高品質で完全な結果を日本語で出力してください。
+ツールを使用してデータを取得した場合は、ソースURL・取得日時を明記してください。${contextSection}`,
+    userContent: `元のリクエスト: ${req.originalPrompt}\n\nあなたのタスク: ${req.task.description}\n\nこのタスクを日本語で徹底的に完遂してください。`,
     allowedTools: req.allowedTools,
   });
 
