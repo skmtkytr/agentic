@@ -260,9 +260,11 @@
         {/if}
 
         {#if wfState}
-          <!-- Agent Pipeline (DAG) -->
+          <!-- 2-column grid: left=pipeline+metrics, right=tasks+log -->
           {@const cur = phaseIndex(wfState.phase)}
           {@const taskCount = Math.max(wfState.tasks.length, wfState.totalTasks, 1)}
+          <div class="wf-grid">
+          <div class="wf-left">
           <div class="dag">
             <!-- Row 1: Planner → Validator -->
             <div class="dag-row">
@@ -408,6 +410,8 @@
             </div>
           {/if}
 
+          </div><!-- /wf-left -->
+          <div class="wf-right">
           <!-- Tasks -->
           {#if wfState.tasks.length > 0}
             <div class="card">
@@ -450,6 +454,8 @@
               </div>
             </details>
           {/if}
+          </div><!-- /wf-right -->
+          </div><!-- /wf-grid -->
         {:else if loading}
           <div class="loading-state"><span class="spinner lg"></span><p>読み込み中...</p></div>
         {:else if error}
@@ -527,11 +533,13 @@
   .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:90; border:none; cursor:default; backdrop-filter:blur(2px); }
 
   /* Main */
-  main { flex:1; min-width:0; padding:2rem 2.5rem; max-width:960px; }
+  main { flex:1; min-width:0; padding:2rem 2.5rem; }
   .topbar { display:none; }
   .hamburger { display:flex; flex-direction:column; gap:4px; background:none; border:none; padding:0.5rem; cursor:pointer; }
   .hamburger span { display:block; width:20px; height:2px; background:var(--text2); border-radius:1px; }
   .topbar-title { font-size:1rem; font-weight:700; color:var(--text); cursor:pointer; }
+
+  .home { max-width:700px; }
 
   /* Animations */
   .fade-in { animation:fadeIn 0.3s ease; }
@@ -613,8 +621,13 @@
   .phase-badge.done { background:rgba(94,232,160,0.15); color:var(--green); }
   .phase-badge.err { background:rgba(248,113,113,0.15); color:var(--red); }
 
+  /* Workflow 2-column grid */
+  .wf-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start; }
+  .wf-left { display:flex; flex-direction:column; gap:1rem; }
+  .wf-right { display:flex; flex-direction:column; gap:1rem; }
+
   /* Agent DAG Pipeline */
-  .dag { display:flex; flex-direction:column; align-items:center; gap:0.75rem; margin-bottom:1.5rem; padding:1rem 0; }
+  .dag { display:flex; flex-direction:column; align-items:center; gap:0.75rem; padding:1rem 0; }
   .dag-row { display:flex; align-items:center; gap:0; width:100%; justify-content:center; }
   .dag-parallel {
     display:flex; flex-direction:column; gap:0.4rem; width:100%;
@@ -733,7 +746,7 @@
   }
 
   /* Metrics */
-  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:0.75rem; margin-bottom:1rem; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:0.75rem; }
   .metric-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; }
   .metric-value { font-size:1.6rem; font-weight:800; letter-spacing:-0.03em; color:var(--text); }
   .metric-total { font-size:0.9rem; font-weight:500; color:var(--muted); }
@@ -810,6 +823,9 @@
   .review-banner.fail { background:rgba(248,113,113,0.05); color:var(--red); }
 
   /* Mobile */
+  @media (max-width:1024px) {
+    .wf-grid { grid-template-columns:1fr; }
+  }
   @media (max-width:768px) {
     .sidebar { position:fixed; left:0; top:0; z-index:100; transform:translateX(-100%); transition:transform 0.25s cubic-bezier(0.4,0,0.2,1); width:280px; }
     .sidebar.open { transform:translateX(0); }
