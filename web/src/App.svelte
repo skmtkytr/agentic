@@ -302,14 +302,19 @@
                 {@const isReviewing = task.status === 'executed'}
                 {@const isReviewed = task.status === 'reviewed' || task.status === 'rejected'}
                 {@const isRejected = task.status === 'rejected'}
-                {@const execColor = isRejected ? 'var(--red)' : 'var(--blue)'}
+                {@const retryCount = wfState.events.filter(e => e.kind === 'task_retry' && e.taskId === task.id).length}
+                {@const isRetrying = isExecuting && retryCount > 0}
+                {@const execColor = isRejected ? 'var(--red)' : isRetrying ? 'var(--amber)' : 'var(--blue)'}
                 {@const reviewColor = isRejected ? 'var(--red)' : 'var(--amber)'}
-                <div class="dag-lane">
+                <div class="dag-lane" class:retrying={isRetrying}>
                   <div class="pipe-node small" class:done={isExecuted && !isRejected} class:active={isExecuting} class:rejected={isRejected} style="--node-color:{execColor}">
-                    <div class="pipe-icon">{isRejected ? '⚠' : '⚡'}</div>
+                    <div class="pipe-icon">{isRejected ? '⚠' : isRetrying ? '🔄' : '⚡'}</div>
                     <div class="pipe-label">Exec {ti+1}</div>
                     {#if isExecuting}<div class="pipe-glow"></div>{/if}
                   </div>
+                  {#if retryCount > 0}
+                    <div class="retry-badge">retry {retryCount}</div>
+                  {/if}
                   <div class="pipe-connector short" class:done={isExecuted||isReviewed} class:rejected={isRejected} class:flowing={isExecuting}>
                     <div class="pipe-line-bg"></div>
                     {#if isExecuted||isReviewed}<div class="pipe-line-fill" class:red={isRejected}></div>{/if}
@@ -656,6 +661,15 @@
   .pipe-node.rejected .pipe-label { color:var(--red); opacity:0.8; }
   .pipe-line-fill.red { background:var(--red); }
   .pipe-connector.short { min-width:16px; flex:0 0 40px; }
+  .dag-lane { position:relative; }
+  .dag-lane.retrying { background:rgba(251,191,36,0.05); border-radius:6px; }
+  .retry-badge {
+    position:absolute; top:-0.4rem; right:0.5rem;
+    font-size:0.55rem; font-weight:700; color:var(--amber);
+    background:rgba(251,191,36,0.15); padding:0.1rem 0.4rem;
+    border-radius:99px; text-transform:uppercase; letter-spacing:0.04em;
+    animation:pulse 1.5s infinite;
+  }
 
   .pipe-node {
     display:flex; flex-direction:column; align-items:center; gap:0.25rem;
