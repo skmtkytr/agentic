@@ -51,20 +51,30 @@ Prompt
 npm install -g @anthropic-ai/claude-code
 
 # 認証 (ブラウザが開きます)
-claude
-
-# 認証成功の確認
-claude "hello"
+claude auth login
 ```
 
-認証情報は `~/.claude/` に保存されます。
+> **macOS の場合**: Claude Code v2.1+ は認証情報を macOS キーチェーンに保存します。
+> Docker コンテナはキーチェーンにアクセスできないため、起動スクリプトが自動的にキーチェーンからファイルに同期します。
 
 #### 2. 起動
 
 ```bash
 git clone https://github.com/skmtkytr/agentic.git
 cd agentic
+npm install
 
+# キーチェーン同期 + Docker 起動を一発で
+npm run docker:up
+```
+
+または手動で:
+
+```bash
+# キーチェーンから認証情報を同期 (macOS)
+bash scripts/sync-credentials.sh
+
+# Docker 起動
 docker compose up --build
 ```
 
@@ -91,13 +101,23 @@ CLAUDE_CONFIG_DIR=/path/to/.claude docker compose up --build
 
 #### トラブルシューティング
 
-**認証エラー (`Invalid API key` / `OAuth token expired`)**
+**認証エラー (`OAuth token has expired`)**
+
+Claude Code v2.1+ は認証情報を macOS キーチェーンに保存するため、Docker コンテナからは直接参照できません。
 
 ```bash
-# ホスト側で再認証
-claude
+# 1. キーチェーンから認証情報を再同期
+bash scripts/sync-credentials.sh
 
-# コンテナを再起動
+# 2. コンテナを再起動
+docker compose restart worker server
+```
+
+トークンが完全に失効している場合:
+
+```bash
+claude auth login
+bash scripts/sync-credentials.sh
 docker compose restart worker server
 ```
 

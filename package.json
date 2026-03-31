@@ -8,7 +8,10 @@
     "server": "lsof -ti :${PORT:-3001} | xargs kill 2>/dev/null; tsx src/server.ts",
     "web:dev": "cd web && npm run dev",
     "build": "tsc",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "docker:up": "bash scripts/sync-credentials.sh && docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f worker server"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",

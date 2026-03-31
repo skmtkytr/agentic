@@ -47,7 +47,7 @@ services:
       - TEMPORAL_NAMESPACE=default
       - PORT=3001
     volumes:
-      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude
+      - ${CLAUDE_CONFIG_DIR:-~/.config/claude}:/root/.claude
     depends_on:
       temporal:
         condition: service_started
@@ -60,7 +60,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
     volumes:
-      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude
+      - ${CLAUDE_CONFIG_DIR:-~/.config/claude}:/root/.claude
     depends_on:
       temporal:
         condition: service_started
