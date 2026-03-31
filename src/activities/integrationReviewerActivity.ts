@@ -26,9 +26,12 @@ export async function integrationReviewerActivity(
 軽微な改善が可能な場合: { "passed": true, "notes": "日本語で改善内容", "revisedResponse": "改善後の回答（日本語）" }
 深刻な品質問題がある場合: { "passed": false, "notes": "日本語で問題の説明" }
 
-notes と revisedResponse は日本語で記述してください。
+重要な制約:
+- notes の値は**必ず日本語**で書いてください。英語で書かないでください。
+- revisedResponse を含める場合も**必ず日本語**で書いてください。
+- キー名（passed, notes, revisedResponse）は英語のままにしてください。
 
-以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
+以下のスキーマに**厳密に**従ってJSONを出力してください:
 {
   "passed": boolean,
   "notes": "string（日本語で記述）",

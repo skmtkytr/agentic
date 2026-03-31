@@ -257,19 +257,22 @@
                 {@const isExecuted = task.status === 'executed' || task.status === 'reviewed' || task.status === 'rejected'}
                 {@const isReviewing = task.status === 'executed'}
                 {@const isReviewed = task.status === 'reviewed' || task.status === 'rejected'}
+                {@const isRejected = task.status === 'rejected'}
+                {@const execColor = isRejected ? 'var(--red)' : 'var(--blue)'}
+                {@const reviewColor = isRejected ? 'var(--red)' : 'var(--amber)'}
                 <div class="dag-lane">
-                  <div class="pipe-node small" class:done={isExecuted} class:active={isExecuting} style="--node-color:var(--blue)">
-                    <div class="pipe-icon">⚡</div>
+                  <div class="pipe-node small" class:done={isExecuted && !isRejected} class:active={isExecuting} class:rejected={isRejected} style="--node-color:{execColor}">
+                    <div class="pipe-icon">{isRejected ? '⚠' : '⚡'}</div>
                     <div class="pipe-label">Exec {ti+1}</div>
                     {#if isExecuting}<div class="pipe-glow"></div>{/if}
                   </div>
-                  <div class="pipe-connector short" class:done={isExecuted||isReviewed} class:flowing={isExecuting}>
+                  <div class="pipe-connector short" class:done={isExecuted||isReviewed} class:rejected={isRejected} class:flowing={isExecuting}>
                     <div class="pipe-line-bg"></div>
-                    {#if isExecuted||isReviewed}<div class="pipe-line-fill"></div>{/if}
+                    {#if isExecuted||isReviewed}<div class="pipe-line-fill" class:red={isRejected}></div>{/if}
                     {#if isExecuting}<div class="particle p1"></div><div class="particle p2"></div>{/if}
                   </div>
-                  <div class="pipe-node small" class:done={isReviewed} class:active={isReviewing} class:rejected={task.status==='rejected'} style="--node-color:var(--amber)">
-                    <div class="pipe-icon">{task.status==='rejected'?'✗':task.status==='reviewed'?'✓':'📋'}</div>
+                  <div class="pipe-node small" class:done={isReviewed && !isRejected} class:active={isReviewing} class:rejected={isRejected} style="--node-color:{reviewColor}">
+                    <div class="pipe-icon">{isRejected?'✗':isReviewed?'✓':'📋'}</div>
                     <div class="pipe-label">Review</div>
                     {#if isReviewing}<div class="pipe-glow"></div>{/if}
                   </div>
@@ -581,6 +584,8 @@
   .pipe-node.small .pipe-icon { width:32px; height:32px; font-size:0.9rem; border-radius:10px; }
   .pipe-node.small .pipe-label { font-size:0.55rem; }
   .pipe-node.rejected .pipe-icon { border-color:var(--red); background:rgba(248,113,113,0.1); }
+  .pipe-node.rejected .pipe-label { color:var(--red); opacity:0.8; }
+  .pipe-line-fill.red { background:var(--red); }
   .pipe-connector.short { min-width:16px; flex:0 0 40px; }
 
   .pipe-node {

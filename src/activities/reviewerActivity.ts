@@ -20,9 +20,12 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
 軽微な問題を修正できる場合: { "passed": true, "notes": "日本語で修正内容", "revisedResult": "修正後の結果（日本語）" }
 根本的に不十分な場合: { "passed": false, "notes": "日本語で問題の説明" }
 
-notes と revisedResult は日本語で記述してください。
+重要な制約:
+- notes の値は**必ず日本語**で書いてください。英語で書かないでください。
+- revisedResult を含める場合も**必ず日本語**で書いてください。
+- キー名（taskId, passed, notes, revisedResult）は英語のままにしてください。
 
-以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
+以下のスキーマに**厳密に**従ってJSONを出力してください:
 {
   "taskId": "string",
   "passed": boolean,

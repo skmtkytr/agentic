@@ -18,6 +18,12 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
 - タスクは独立して実行できる粒度にしてください
 - planSummary には全体的なアプローチの概要を日本語で記述してください
 
+並列性の最大化:
+- 互いに独立して実行できるタスクは dependsOn を空にして並列実行可能にしてください
+- 本当に前のタスクの出力が必要な場合のみ dependsOn を設定してください
+- 「データ取得」と「テンプレート準備」のように独立した作業は並列にできます
+- 不必要な直列チェーンを避けてください
+
 以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
 {
   "planSummary": "string（日本語で記述）",
