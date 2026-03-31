@@ -1,0 +1,286 @@
+# Agentic
+
+Temporal.io + Claude Agent SDK によるマルチエージェント ワークフローエンジン。
+
+1つのプロンプトから6種の専門エージェントがパイプライン処理し、品質レビュー付きの最終回答を生成します。
+
+```
+Prompt
+  └─ Planner ──► Validator
+                    │
+                    ▼
+            ┌───────────────┐
+            │  並列実行       │
+            │ Executor₁→Rev₁ │
+            │ Executor₂→Rev₂ │
+            │ Executor₃→Rev₃ │
+            └───────┬───────┘
+                    ▼
+     Integrator ──► Integration Reviewer ──► Final Response
+```
+
+## 特徴
+
+- **DAG 並列実行** — 依存のないタスクは自動で並列実行
+- **2段階リトライ** — タスクレベル (Executor→Reviewer) とパイプラインレベル (全体やり直し)
+- **ツール使用** — WebFetch, WebSearch, Bash, Read/Write/Edit 等を Executor に許可
+- **ツール証跡** — Executor のツール使用を自動記録し、Reviewer に渡してファクトチェック
+- **リアルタイム Web UI** — SSE でフェーズ進行、タスク状態、アクティビティログをライブ表示
+- **ワークフロー履歴** — Temporal から過去の実行をブラウズ、結果を再表示
+- **Markdown レンダリング** — テーブル、コードブロック、リストをリッチに表示
+- **日本語出力** — 全エージェントが日本語で応答
+
+## クイックスタート
+
+### Docker Compose (推奨)
+
+最もシンプルな方法。Temporal, Worker, Web UI を一発で起動します。
+
+#### 前提条件
+
+- Docker & Docker Compose
+- Claude Code CLI がローカルで認証済みであること
+
+#### 1. Claude Code の認証
+
+コンテナは Claude Code CLI の OAuth セッションをホストから引き継ぎます。
+まだ認証していない場合は、ローカルで一度実行してください:
+
+```bash
+# Claude Code CLI をインストール (まだの場合)
+npm install -g @anthropic-ai/claude-code
+
+# 認証 (ブラウザが開きます)
+claude
+
+# 認証成功の確認
+claude "hello"
+```
+
+認証情報は `~/.claude/` に保存されます。
+
+#### 2. 起動
+
+```bash
+git clone https://github.com/skmtkytr/agentic.git
+cd agentic
+
+docker compose up --build
+```
+
+#### 3. アクセス
+
+| サービス | URL | 説明 |
+|---|---|---|
+| **Web UI** | http://localhost:3001 | メインのダッシュボード |
+| **Temporal UI** | http://localhost:8080 | ワークフロー管理コンソール |
+
+#### 停止
+
+```bash
+docker compose down
+```
+
+#### Claude 認証パスのカスタマイズ
+
+デフォルトでは `~/.claude` をマウントします。別の場所にある場合:
+
+```bash
+CLAUDE_CONFIG_DIR=/path/to/.claude docker compose up --build
+```
+
+#### トラブルシューティング
+
+**認証エラー (`Invalid API key` / `OAuth token expired`)**
+
+```bash
+# ホスト側で再認証
+claude
+
+# コンテナを再起動
+docker compose restart worker server
+```
+
+**Temporal 接続エラー**
+
+Temporal の起動に数秒かかります。Worker/Server が先に起動してエラーになる場合は少し待って:
+
+```bash
+docker compose restart worker server
+```
+
+---
+
+### ローカル開発
+
+Docker を使わず、各コンポーネントを個別に起動する方法。
+
+#### 前提条件
+
+- Node.js 22+
+- Temporal CLI (`brew install temporal` or [公式ドキュメント](https://docs.temporal.io/cli))
+- Claude Code CLI (認証済み)
+
+#### セットアップ
+
+```bash
+git clone https://github.com/skmtkytr/agentic.git
+cd agentic
+npm install
+cd web && npm install && cd ..
+```
+
+#### 起動 (3つのターミナル)
+
+```bash
+# ターミナル 1: Temporal Server
+temporal server start-dev
+
+# ターミナル 2: Worker
+npm run worker
+
+# ターミナル 3: API Server + Web UI
+npm run server
+# → http://localhost:3001
+```
+
+#### 開発時 (Vite ホットリロード)
+
+```bash
+# ターミナル 4 (オプション): Vite dev server
+npm run web:dev
+# → http://localhost:5173 (API は 3001 にプロキシ)
+```
+
+#### CLI から直接実行
+
+```bash
+npm start "TypeScriptでRESTful APIを設計してください"
+```
+
+## Web UI の使い方
+
+### 新規ワークフロー
+
+1. プロンプトを入力
+2. モデルを選択 (Opus 4.6 / Sonnet 4.6 / Haiku 4.5)
+3. ツール権限を設定 (なし / 読取 / 全て、または個別選択)
+4. リトライ回数を設定
+   - **全体リトライ**: 統合レビュー失敗時にパイプライン全体をやり直す回数
+   - **タスクリトライ**: 個別タスクのレビュー失敗時に Executor→Reviewer を再実行する回数
+5. 「実行」をクリック
+
+### ダッシュボード
+
+- **パイプライン可視化**: 各エージェントの進行状況をアニメーション付きで表示
+  - 並列実行ゾーンでタスクごとの Executor→Reviewer レーンを表示
+  - パーティクルアニメーションでデータの流れを可視化
+- **メトリクスカード**: タスク完了数、レビュー通過率、実行時間、統合レビュー結果
+- **アクティビティログ**: 全エージェントの開始/完了をタイムスタンプ付きで記録
+- **タスク詳細**: 各タスクの実行結果とレビューノートを展開表示
+- **結果**: Markdown レンダリング (テーブル、コード、リスト対応)
+
+### ワークフロー履歴
+
+- 左サイドバーに過去のワークフローを表示
+- プロンプト、ステータス、実行日時を確認
+- クリックで結果を再表示
+- ページリロードしても URL ハッシュで状態を復元
+
+## アーキテクチャ
+
+```
+┌─────────────────────────────────────────────────┐
+│                    Web UI                        │
+│              (Svelte + Vite)                     │
+│    http://localhost:3001                         │
+└─────────────┬───────────────────────────────────┘
+              │ SSE / REST API
+┌─────────────▼───────────────────────────────────┐
+│               Express Server                     │
+│            (src/server/app.ts)                    │
+│  POST /api/run  GET /api/status/:id (SSE)       │
+│  GET /api/workflows  GET /api/result/:id        │
+└─────────────┬───────────────────────────────────┘
+              │ Temporal Client
+┌─────────────▼───────────────────────────────────┐
+│            Temporal Server                        │
+│         (Workflow Orchestration)                  │
+│    Retry, Timeout, Signal, Query, History        │
+└─────────────┬───────────────────────────────────┘
+              │ Activity Execution
+┌─────────────▼───────────────────────────────────┐
+│              Worker                               │
+│         (src/worker.ts)                           │
+│                                                   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │ Planner  │ │Validator │ │ Executor×N       │ │
+│  │          │ │          │ │  → Reviewer×N     │ │
+│  └──────────┘ └──────────┘ └──────────────────┘ │
+│  ┌──────────────────┐ ┌────────────────────────┐ │
+│  │   Integrator     │ │ Integration Reviewer   │ │
+│  └──────────────────┘ └────────────────────────┘ │
+│                                                   │
+│         Claude Agent SDK (query())                │
+│            └─ claude CLI subprocess               │
+└───────────────────────────────────────────────────┘
+```
+
+## エージェント一覧
+
+| エージェント | 役割 | 入力 | 出力 |
+|---|---|---|---|
+| **Planner** | プロンプトを DAG タスクに分解 | prompt | TaskPlan (tasks + planSummary) |
+| **Validator** | DAG の妥当性検証 | plan | valid/issues/revisedPlan |
+| **Executor** | 個別タスクを実行 (ツール使用可) | task + context + allowedTools | result + toolUsage |
+| **Reviewer** | タスク結果の品質レビュー | result + toolUsage | passed/notes/revisedResult |
+| **Integrator** | レビュー済みタスクを統合 | reviewedTasks | integratedResponse |
+| **Integration Reviewer** | 最終 QA | integratedResponse + toolEvidence | passed/notes/revisedResponse |
+
+## ツール一覧
+
+UI から Executor に許可するツールを選択できます:
+
+| ツール | 説明 |
+|---|---|
+| Read | ファイル読み取り |
+| Write | ファイル書き込み |
+| Edit | ファイル編集 |
+| Bash | シェルコマンド実行 |
+| Glob | ファイルパターン検索 |
+| Grep | ファイル内容検索 |
+| WebFetch | URL からデータ取得 |
+| WebSearch | Web 検索 |
+| NotebookEdit | Jupyter ノートブック編集 |
+| Task | サブタスク委譲 |
+| ToolSearch | 利用可能ツール検索 |
+
+## テスト
+
+```bash
+npm test
+```
+
+111 テスト:
+
+- LLM 層 (callStructured / callRawText) のオプション・エラー処理・ツール証跡抽出
+- 全 Zod スキーマのバリデーション
+- 全 6 アクティビティのユニットテスト
+- Express API エンドポイント (supertest)
+- ワークフロー統合テスト (DAG 並列実行、依存チェーン、リトライ、イベント記録)
+
+## 環境変数
+
+| 変数 | デフォルト | 説明 |
+|---|---|---|
+| `TEMPORAL_ADDRESS` | `localhost:7233` | Temporal Server のアドレス |
+| `TEMPORAL_NAMESPACE` | `default` | Temporal の namespace |
+| `CLAUDE_MODEL` | `claude-opus-4-6` | デフォルトモデル |
+| `PORT` | `3001` | Express サーバーのポート |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code 認証ディレクトリ (Docker 用) |
+
+> `ANTHROPIC_API_KEY` は不要です。Claude Agent SDK が Claude Code CLI の OAuth セッションを使用します。
+
+## ライセンス
+
+MIT
