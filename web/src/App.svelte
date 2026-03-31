@@ -47,6 +47,7 @@
   let maxTaskRetries = $state(0);
   let enabledTools = $state<Set<string>>(new Set());
   let workflowId = $state<string | null>(null);
+  let workflowPrompt = $state<string | null>(null);
   let wfState = $state<WorkflowState | null>(null);
   let result = $state<WorkflowResult | null>(null);
   let error = $state<string | null>(null);
@@ -64,6 +65,7 @@
   async function openWorkflow(id: string) {
     if (currentSse) { currentSse.close(); currentSse = null; }
     workflowId = id; wfState = null; result = null; error = null; loading = true; expandedTasks = new Set(); setHash(id); sidebarOpen = false;
+    workflowPrompt = workflowHistory.find((w) => w.workflowId === id)?.prompt ?? null;
     try {
       const r = await fetch(`/api/workflow/${id}`); if (!r.ok) { error = 'Workflow not found'; loading = false; return; }
       const d = await r.json(); if (d.status === 'COMPLETED') await fetchResult(id); else if (d.status === 'RUNNING') connectSse(id); else { error = `Status: ${d.status}`; loading = false; }
@@ -79,7 +81,7 @@
   function phaseIndex(p: Phase) { return PHASES.indexOf(p); }
   function scrollEventLog() { if(eventLogEl)eventLogEl.scrollTop=eventLogEl.scrollHeight; }
   async function submit() {
-    if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;
+    if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;workflowPrompt=prompt.trim();
     try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined,maxPipelineRetries:maxRetries||undefined,maxTaskRetries:maxTaskRetries||undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
   }
   async function fetchResult(id: string) {
@@ -95,7 +97,7 @@
   function formatTime(ts: number) { return new Date(ts).toLocaleTimeString('ja-JP',{hour12:false}); }
   function formatDateTime(iso: string) { const d=new Date(iso);return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
   function statusBadge(s: string) { return s==='RUNNING'?{l:'実行中',c:'var(--blue)'}:s==='COMPLETED'?{l:'完了',c:'var(--green)'}:s==='FAILED'?{l:'失敗',c:'var(--red)'}:{l:s,c:'var(--muted)'}; }
-  function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;loading=false;expandedTasks=new Set();setHash(null); }
+  function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;loading=false;expandedTasks=new Set();setHash(null); }
   function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
 
   onMount(()=>{loadHistory();syncHashToState();window.addEventListener('hashchange',syncHashToState);return()=>window.removeEventListener('hashchange',syncHashToState);});
@@ -225,6 +227,12 @@
             </span>
           {/if}
         </div>
+
+        {#if workflowPrompt}
+          <div class="prompt-display">
+            <div class="prompt-display-text">{workflowPrompt}</div>
+          </div>
+        {/if}
 
         {#if wfState}
           <!-- Agent Pipeline (DAG) -->
@@ -545,6 +553,13 @@
   .back-btn { background:none; border:1px solid var(--border); color:var(--text2); padding:0.3rem; border-radius:6px; cursor:pointer; display:flex; align-items:center; transition:all 0.12s; }
   .back-btn:hover { background:var(--bg3); color:var(--text); }
   .wf-id { font-size:0.75rem; color:var(--muted); }
+  .prompt-display {
+    background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius);
+    padding:0.75rem 1rem; margin-bottom:1rem;
+  }
+  .prompt-display-text {
+    font-size:0.9rem; color:var(--text); line-height:1.6; white-space:pre-wrap; word-break:break-word;
+  }
   .phase-badge { font-size:0.65rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; padding:0.2rem 0.5rem; border-radius:99px; }
   .phase-badge.running { background:rgba(108,124,255,0.15); color:var(--blue); animation:pulse 1.5s infinite; }
   .phase-badge.done { background:rgba(94,232,160,0.15); color:var(--green); }
