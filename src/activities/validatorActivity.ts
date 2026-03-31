@@ -24,10 +24,10 @@ export async function validatorActivity(req: ValidatorRequest): Promise<Validato
 
 issues の内容は日本語で記述してください。
 
-以下のスキーマに従ってJSONを出力してください:
+以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
 {
   "valid": boolean,
-  "issues": ["string（日本語）"],
+  "issues": ["string（日本語で記述）"],
   "revisedPlan": { /* optional, 入力と同じ形式 */ }
 }`,
     userContent: `以下のタスクプランを検証してください:\n\n${planJson}`,

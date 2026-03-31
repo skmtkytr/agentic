@@ -28,11 +28,11 @@ export async function integrationReviewerActivity(
 
 notes と revisedResponse は日本語で記述してください。
 
-以下のスキーマに従ってJSONを出力してください:
+以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
 {
   "passed": boolean,
-  "notes": "string（日本語）",
-  "revisedResponse": "string（日本語、optional）"
+  "notes": "string（日本語で記述）",
+  "revisedResponse": "string（日本語で記述、optional）"
 }`,
     userContent: `元のリクエスト: ${req.originalPrompt}
 

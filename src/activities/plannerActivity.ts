@@ -18,19 +18,21 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
 - タスクは独立して実行できる粒度にしてください
 - planSummary には全体的なアプローチの概要を日本語で記述してください
 
-以下のスキーマに従ってJSONを出力してください:
+以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
 {
-  "planSummary": "string（日本語）",
+  "planSummary": "string（日本語で記述）",
   "tasks": [
     {
       "id": "string",
-      "description": "string（日本語）",
+      "description": "string（日本語で記述）",
       "dependsOn": ["string"],
       "status": "pending",
       "reviewPassed": false
     }
   ]
-}`,
+}
+
+重要: "planSummary" と "tasks" はトップレベルのキーです。これらを別のキー名やラッパーオブジェクトで囲まないでください。`,
     userContent: req.prompt,
   });
 
