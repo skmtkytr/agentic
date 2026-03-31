@@ -68,6 +68,8 @@
     { id: 'WebFetch', label: 'WebFetch', desc: 'URL取得' },
     { id: 'WebSearch', label: 'WebSearch', desc: 'Web検索' },
     { id: 'NotebookEdit', label: 'NotebookEdit', desc: 'Jupyter' },
+    { id: 'Task', label: 'Task', desc: 'サブタスク委譲' },
+    { id: 'ToolSearch', label: 'ToolSearch', desc: 'ツール検索' },
   ] as const;
 
   let prompt = $state('');
