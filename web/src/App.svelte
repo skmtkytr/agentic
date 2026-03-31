@@ -1,75 +1,31 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  type Phase =
-    | 'planning'
-    | 'validating'
-    | 'executing'
-    | 'integrating'
-    | 'reviewing'
-    | 'complete'
-    | 'failed';
+  type Phase = 'planning' | 'validating' | 'executing' | 'integrating' | 'reviewing' | 'complete' | 'failed';
 
-  interface ActivityEvent {
-    kind: string;
-    timestamp: number;
-    taskId?: string;
-    taskDescription?: string;
-    summary: string;
-  }
-
-  interface TaskState {
-    id: string;
-    description: string;
-    dependsOn: string[];
-    status: 'pending' | 'executing' | 'executed' | 'reviewed' | 'rejected';
-    result?: string;
-    reviewNotes?: string;
-    reviewPassed: boolean;
-  }
-
-  interface WorkflowState {
-    phase: Phase;
-    totalTasks: number;
-    completedTasks: number;
-    currentlyExecuting: string[];
-    events: ActivityEvent[];
-    tasks: TaskState[];
-  }
-
-  interface WorkflowResult {
-    finalResponse: string;
-    integrationReviewPassed: boolean;
-    integrationReviewNotes: string;
-    tasks: TaskState[];
-    executionTimeMs: number;
-  }
-
-  interface HistoryEntry {
-    workflowId: string;
-    status: string;
-    startTime: string;
-    prompt?: string;
-  }
+  interface ActivityEvent { kind: string; timestamp: number; taskId?: string; taskDescription?: string; summary: string; }
+  interface TaskState { id: string; description: string; dependsOn: string[]; status: 'pending' | 'executing' | 'executed' | 'reviewed' | 'rejected'; result?: string; reviewNotes?: string; reviewPassed: boolean; }
+  interface WorkflowState { phase: Phase; totalTasks: number; completedTasks: number; currentlyExecuting: string[]; events: ActivityEvent[]; tasks: TaskState[]; }
+  interface WorkflowResult { finalResponse: string; integrationReviewPassed: boolean; integrationReviewNotes: string; tasks: TaskState[]; executionTimeMs: number; }
+  interface HistoryEntry { workflowId: string; status: string; startTime: string; prompt?: string; }
 
   const PHASES: Phase[] = ['planning', 'validating', 'executing', 'integrating', 'reviewing', 'complete'];
-  const PHASE_LABELS: Record<string, string> = {
-    planning: 'Planning', validating: 'Validating', executing: 'Executing',
-    integrating: 'Integrating', reviewing: 'Reviewing', complete: 'Complete',
+  const PHASE_ICONS: Record<string, string> = {
+    planning: '1', validating: '2', executing: '3', integrating: '4', reviewing: '5', complete: '6',
   };
 
   const AVAILABLE_TOOLS = [
-    { id: 'Read', label: 'Read', desc: 'ファイル読み取り' },
-    { id: 'Write', label: 'Write', desc: 'ファイル書き込み' },
-    { id: 'Edit', label: 'Edit', desc: 'ファイル編集' },
-    { id: 'Bash', label: 'Bash', desc: 'シェルコマンド実行' },
-    { id: 'Glob', label: 'Glob', desc: 'パターン検索' },
-    { id: 'Grep', label: 'Grep', desc: '内容検索' },
-    { id: 'WebFetch', label: 'WebFetch', desc: 'URL取得' },
-    { id: 'WebSearch', label: 'WebSearch', desc: 'Web検索' },
-    { id: 'NotebookEdit', label: 'NotebookEdit', desc: 'Jupyter' },
-    { id: 'Task', label: 'Task', desc: 'サブタスク委譲' },
-    { id: 'ToolSearch', label: 'ToolSearch', desc: 'ツール検索' },
+    { id: 'Read', label: 'Read', desc: 'ファイル読み取り', icon: '📄' },
+    { id: 'Write', label: 'Write', desc: 'ファイル書き込み', icon: '✏️' },
+    { id: 'Edit', label: 'Edit', desc: 'ファイル編集', icon: '📝' },
+    { id: 'Bash', label: 'Bash', desc: 'シェルコマンド', icon: '💻' },
+    { id: 'Glob', label: 'Glob', desc: 'パターン検索', icon: '🔍' },
+    { id: 'Grep', label: 'Grep', desc: '内容検索', icon: '🔎' },
+    { id: 'WebFetch', label: 'WebFetch', desc: 'URL取得', icon: '🌐' },
+    { id: 'WebSearch', label: 'WebSearch', desc: 'Web検索', icon: '🔗' },
+    { id: 'NotebookEdit', label: 'Notebook', desc: 'Jupyter', icon: '📓' },
+    { id: 'Task', label: 'Task', desc: 'サブタスク', icon: '📋' },
+    { id: 'ToolSearch', label: 'ToolSearch', desc: 'ツール検索', icon: '🧰' },
   ] as const;
 
   let prompt = $state('');
@@ -86,573 +42,442 @@
   let currentSse: EventSource | null = null;
   let eventLogEl: HTMLElement | undefined = $state();
 
-  function syncHashToState() {
-    const hash = location.hash.replace('#', '');
-    if (hash && hash.startsWith('agentic-')) openWorkflow(hash);
-  }
-
-  function setHash(id: string | null) {
-    if (id) history.replaceState(null, '', `#${id}`);
-    else history.replaceState(null, '', location.pathname);
-  }
-
-  async function loadHistory() {
-    try {
-      const res = await fetch('/api/workflows');
-      if (res.ok) workflowHistory = (await res.json()) as HistoryEntry[];
-    } catch { /* ignore */ }
-  }
-
+  // --- Core logic (unchanged) ---
+  function syncHashToState() { const h = location.hash.replace('#',''); if (h?.startsWith('agentic-')) openWorkflow(h); }
+  function setHash(id: string | null) { if (id) history.replaceState(null,'',`#${id}`); else history.replaceState(null,'',location.pathname); }
+  async function loadHistory() { try { const r = await fetch('/api/workflows'); if (r.ok) workflowHistory = await r.json(); } catch {} }
   async function openWorkflow(id: string) {
     if (currentSse) { currentSse.close(); currentSse = null; }
-    workflowId = id;
-    wfState = null;
-    result = null;
-    error = null;
-    loading = true;
-    expandedTasks = new Set();
-    setHash(id);
-    sidebarOpen = false;
-
+    workflowId = id; wfState = null; result = null; error = null; loading = true; expandedTasks = new Set(); setHash(id); sidebarOpen = false;
     try {
-      const detailRes = await fetch(`/api/workflow/${id}`);
-      if (!detailRes.ok) { error = 'Workflow not found'; loading = false; return; }
-      const detail = (await detailRes.json()) as { status: string };
-
-      if (detail.status === 'COMPLETED') await fetchResult(id);
-      else if (detail.status === 'RUNNING') connectSse(id);
-      else { error = `Workflow status: ${detail.status}`; loading = false; }
+      const r = await fetch(`/api/workflow/${id}`); if (!r.ok) { error = 'Workflow not found'; loading = false; return; }
+      const d = await r.json(); if (d.status === 'COMPLETED') await fetchResult(id); else if (d.status === 'RUNNING') connectSse(id); else { error = `Status: ${d.status}`; loading = false; }
     } catch (e) { error = (e as Error).message; loading = false; }
   }
-
   function connectSse(id: string) {
-    const sse = new EventSource(`/api/status/${id}`);
-    currentSse = sse;
-    sse.onmessage = (e) => {
-      const data = JSON.parse(e.data) as { type: string } & WorkflowState;
-      if (data.type === 'status') {
-        wfState = data;
-        requestAnimationFrame(scrollEventLog);
-        if (data.phase === 'complete' || data.phase === 'failed') {
-          sse.close(); currentSse = null;
-          if (data.phase === 'complete') fetchResult(id);
-          else { loading = false; error = 'Workflow failed'; }
-          loadHistory();
-        }
-      }
-    };
-    sse.onerror = () => {
-      sse.close(); currentSse = null;
-      fetchResult(id).catch(() => { loading = false; });
-    };
+    const sse = new EventSource(`/api/status/${id}`); currentSse = sse;
+    sse.onmessage = (e) => { const d = JSON.parse(e.data); if (d.type==='status') { wfState = d; requestAnimationFrame(scrollEventLog); if (d.phase==='complete'||d.phase==='failed') { sse.close(); currentSse=null; if (d.phase==='complete') fetchResult(id); else { loading=false; error='Workflow failed'; } loadHistory(); } } };
+    sse.onerror = () => { sse.close(); currentSse=null; fetchResult(id).catch(()=>{loading=false;}); };
   }
-
-  function toggleTool(id: string) {
-    const next = new Set(enabledTools);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    enabledTools = next;
-  }
-
-  function setToolPreset(preset: 'none' | 'readonly' | 'all') {
-    if (preset === 'none') enabledTools = new Set();
-    else if (preset === 'readonly') enabledTools = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch']);
-    else enabledTools = new Set(AVAILABLE_TOOLS.map((t) => t.id));
-  }
-
-  function phaseIndex(phase: Phase): number { return PHASES.indexOf(phase); }
-  function scrollEventLog() { if (eventLogEl) eventLogEl.scrollTop = eventLogEl.scrollHeight; }
-
+  function toggleTool(id: string) { const n=new Set(enabledTools); if(n.has(id))n.delete(id);else n.add(id); enabledTools=n; }
+  function setToolPreset(p: 'none'|'readonly'|'all') { if(p==='none')enabledTools=new Set();else if(p==='readonly')enabledTools=new Set(['Read','Glob','Grep','WebFetch','WebSearch']);else enabledTools=new Set(AVAILABLE_TOOLS.map(t=>t.id)); }
+  function phaseIndex(p: Phase) { return PHASES.indexOf(p); }
+  function scrollEventLog() { if(eventLogEl)eventLogEl.scrollTop=eventLogEl.scrollHeight; }
   async function submit() {
-    if (!prompt.trim() || loading) return;
-    loading = true; error = null; wfState = null; result = null; workflowId = null;
-    try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(), model,
-          allowedTools: enabledTools.size > 0 ? [...enabledTools] : undefined,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? res.statusText);
-      }
-      const { workflowId: id } = (await res.json()) as { workflowId: string };
-      workflowId = id;
-      setHash(id);
-      connectSse(id);
-      loadHistory();
-    } catch (e) { error = (e as Error).message; loading = false; }
+    if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;
+    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
   }
-
   async function fetchResult(id: string) {
-    try {
-      const res = await fetch(`/api/result/${id}`);
-      if (!res.ok) throw new Error(res.statusText);
-      result = (await res.json()) as WorkflowResult;
-      if (!wfState) {
-        wfState = {
-          phase: 'complete', totalTasks: result.tasks.length,
-          completedTasks: result.tasks.length, currentlyExecuting: [],
-          events: [], tasks: result.tasks,
-        };
-      }
-    } catch (e) { error = (e as Error).message; }
-    finally { loading = false; }
+    try { const r=await fetch(`/api/result/${id}`);if(!r.ok)throw new Error(r.statusText);result=await r.json();if(!wfState)wfState={phase:'complete',totalTasks:result!.tasks.length,completedTasks:result!.tasks.length,currentlyExecuting:[],events:[],tasks:result!.tasks}; } catch(e){error=(e as Error).message;} finally{loading=false;}
   }
+  function toggleTask(id: string) { const n=new Set(expandedTasks);if(n.has(id))n.delete(id);else n.add(id);expandedTasks=n; }
 
-  function toggleTask(id: string) {
-    const next = new Set(expandedTasks);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    expandedTasks = next;
-  }
+  // --- Helpers ---
+  function statusIcon(s: TaskState['status']) { return s==='reviewed'?'✓':s==='rejected'?'✗':s==='executing'?'⟳':s==='executed'?'…':'○'; }
+  function statusColor(s: TaskState['status']) { return s==='reviewed'?'var(--green)':s==='rejected'?'var(--red)':s==='executing'?'var(--blue)':s==='executed'?'var(--amber)':'var(--muted)'; }
+  function eventIcon(k: string) { return k.endsWith('_start')?'▶':k.endsWith('_done')?'✓':'·'; }
+  function eventColor(k: string) { if(k.startsWith('planner'))return'var(--purple)';if(k.startsWith('validator'))return'var(--cyan)';if(k.startsWith('executor'))return'var(--blue)';if(k.startsWith('reviewer'))return'var(--amber)';if(k.startsWith('integrator'))return'var(--green)';if(k.startsWith('integration_reviewer'))return'var(--teal)';return'var(--muted)'; }
+  function formatTime(ts: number) { return new Date(ts).toLocaleTimeString('ja-JP',{hour12:false}); }
+  function formatDateTime(iso: string) { const d=new Date(iso);return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
+  function statusBadge(s: string) { return s==='RUNNING'?{l:'実行中',c:'var(--blue)'}:s==='COMPLETED'?{l:'完了',c:'var(--green)'}:s==='FAILED'?{l:'失敗',c:'var(--red)'}:{l:s,c:'var(--muted)'}; }
+  function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;loading=false;expandedTasks=new Set();setHash(null); }
+  function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
 
-  function statusIcon(s: TaskState['status']): string {
-    return s === 'reviewed' ? '✓' : s === 'rejected' ? '✗' : s === 'executing' ? '⟳' : s === 'executed' ? '…' : '○';
-  }
-  function statusColor(s: TaskState['status']): string {
-    return s === 'reviewed' ? '#6ee7b7' : s === 'rejected' ? '#f87171' : s === 'executing' ? '#818cf8' : s === 'executed' ? '#fbbf24' : '#475569';
-  }
-  function eventIcon(k: string): string { return k.endsWith('_start') ? '▶' : k.endsWith('_done') ? '✓' : '·'; }
-  function eventColor(k: string): string {
-    if (k.startsWith('planner')) return '#a78bfa';
-    if (k.startsWith('validator')) return '#67e8f9';
-    if (k.startsWith('executor')) return '#818cf8';
-    if (k.startsWith('reviewer')) return '#fbbf24';
-    if (k.startsWith('integrator')) return '#34d399';
-    if (k.startsWith('integration_reviewer')) return '#6ee7b7';
-    return '#94a3b8';
-  }
-  function formatTime(ts: number): string { return new Date(ts).toLocaleTimeString('ja-JP', { hour12: false }); }
-  function formatDateTime(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) + ' ' +
-      d.toLocaleTimeString('ja-JP', { hour12: false, hour: '2-digit', minute: '2-digit' });
-  }
-  function statusBadge(status: string): { label: string; color: string } {
-    switch (status) {
-      case 'RUNNING': return { label: '実行中', color: '#818cf8' };
-      case 'COMPLETED': return { label: '完了', color: '#6ee7b7' };
-      case 'FAILED': return { label: '失敗', color: '#f87171' };
-      default: return { label: status, color: '#64748b' };
-    }
-  }
-
-  function goHome() {
-    if (currentSse) { currentSse.close(); currentSse = null; }
-    workflowId = null; wfState = null; result = null; error = null;
-    loading = false; expandedTasks = new Set();
-    setHash(null);
-  }
-
-  onMount(() => {
-    loadHistory();
-    syncHashToState();
-    window.addEventListener('hashchange', syncHashToState);
-    return () => window.removeEventListener('hashchange', syncHashToState);
-  });
+  onMount(()=>{loadHistory();syncHashToState();window.addEventListener('hashchange',syncHashToState);return()=>window.removeEventListener('hashchange',syncHashToState);});
 </script>
 
-<!-- Mobile sidebar overlay -->
 {#if sidebarOpen}
-  <button class="overlay" onclick={() => sidebarOpen = false} aria-label="Close sidebar"></button>
+  <button class="overlay" onclick={()=>sidebarOpen=false} aria-label="Close"></button>
 {/if}
 
 <div class="layout">
-  <!-- Sidebar -->
   <aside class="sidebar" class:open={sidebarOpen}>
     <div class="sidebar-header">
-      <h2 onclick={goHome} class="clickable">Agentic</h2>
-      <button class="new-btn" onclick={() => { goHome(); sidebarOpen = false; }}>+ 新規</button>
+      <button class="logo" onclick={()=>{goHome();sidebarOpen=false;}}>
+        <span class="logo-icon">A</span>
+        <span class="logo-text">Agentic</span>
+      </button>
+      <button class="new-btn" onclick={()=>{goHome();sidebarOpen=false;}}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        新規
+      </button>
     </div>
-
     <div class="history-list">
       {#each workflowHistory as entry}
-        {@const badge = statusBadge(entry.status)}
-        <button
-          class="history-item"
-          class:active={workflowId === entry.workflowId}
-          onclick={() => { openWorkflow(entry.workflowId); }}
-        >
-          <div class="history-top">
-            <span class="history-badge" style="color: {badge.color}">{badge.label}</span>
-            <span class="history-time">{formatDateTime(entry.startTime)}</span>
+        {@const b = statusBadge(entry.status)}
+        <button class="history-item" class:active={workflowId===entry.workflowId} onclick={()=>openWorkflow(entry.workflowId)}>
+          <div class="history-indicator" style="background:{b.c}"></div>
+          <div class="history-content">
+            <div class="history-prompt">{entry.prompt ?? entry.workflowId.slice(-8)}</div>
+            <div class="history-meta"><span style="color:{b.c}">{b.l}</span><span>{formatDateTime(entry.startTime)}</span></div>
           </div>
-          <div class="history-prompt">{entry.prompt ?? entry.workflowId.slice(-8)}</div>
         </button>
       {/each}
-      {#if workflowHistory.length === 0}
-        <p class="history-empty">履歴なし</p>
+      {#if workflowHistory.length===0}
+        <div class="history-empty">
+          <p>まだワークフローがありません</p>
+          <p class="sub">新規タスクを作成して開始しましょう</p>
+        </div>
       {/if}
     </div>
   </aside>
 
-  <!-- Main -->
   <main>
-    <!-- Mobile topbar -->
     <div class="topbar">
-      <button class="hamburger" onclick={() => { sidebarOpen = !sidebarOpen; if (sidebarOpen) loadHistory(); }} aria-label="Menu">
+      <button class="hamburger" onclick={()=>{sidebarOpen=!sidebarOpen;if(sidebarOpen)loadHistory();}} aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
-      <h1 onclick={goHome} class="clickable">Agentic Workflow</h1>
+      <span class="topbar-title" onclick={goHome}>Agentic</span>
     </div>
 
     {#if !workflowId}
-      <section class="input-section">
-        <label for="prompt">プロンプト</label>
-        <textarea
-          id="prompt" bind:value={prompt} rows={4}
-          placeholder="例: TypeScript で RESTful API を設計してください"
-          disabled={loading}
-        ></textarea>
-
-        <div class="form-row">
-          <div class="options">
-            <label for="model">モデル</label>
-            <select id="model" bind:value={model} disabled={loading}>
-              <option value="claude-opus-4-6">claude-opus-4-6</option>
-              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-            </select>
-          </div>
-          <button class="submit-btn" onclick={submit} disabled={!prompt.trim() || loading}>
-            {loading ? '実行中…' : '実行'}
-          </button>
+      <!-- HOME -->
+      <div class="home fade-in">
+        <div class="hero">
+          <h1>Agentic Workflow</h1>
+          <p class="hero-sub">Temporal.io + Claude によるマルチエージェントパイプライン</p>
         </div>
 
-        <div class="tools-section">
-          <div class="tools-header">
-            <span class="tools-label">ツール権限</span>
+        <div class="card input-card">
+          <textarea bind:value={prompt} rows={4} placeholder="タスクを入力してください..." disabled={loading}></textarea>
+          <div class="input-footer">
+            <div class="input-options">
+              <select bind:value={model} disabled={loading}>
+                <option value="claude-opus-4-6">Opus 4.6</option>
+                <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+              </select>
+            </div>
+            <button class="run-btn" onclick={submit} disabled={!prompt.trim()||loading}>
+              {#if loading}<span class="spinner"></span>{:else}
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 2l10 6-10 6V2z" fill="currentColor"/></svg>
+              {/if}
+              {loading?'実行中...':'実行'}
+            </button>
+          </div>
+        </div>
+
+        <div class="card tools-card">
+          <div class="card-header">
+            <span class="card-title">ツール権限</span>
             <div class="tool-presets">
-              <button class="preset-btn" onclick={() => setToolPreset('none')} disabled={loading}>なし</button>
-              <button class="preset-btn" onclick={() => setToolPreset('readonly')} disabled={loading}>読取</button>
-              <button class="preset-btn" onclick={() => setToolPreset('all')} disabled={loading}>全て</button>
+              <button class="pill" class:active={enabledTools.size===0} onclick={()=>setToolPreset('none')}>なし</button>
+              <button class="pill" class:active={enabledTools.size===5&&enabledTools.has('Read')} onclick={()=>setToolPreset('readonly')}>読取</button>
+              <button class="pill" class:active={enabledTools.size===AVAILABLE_TOOLS.length} onclick={()=>setToolPreset('all')}>全て</button>
             </div>
           </div>
           <div class="tools-grid">
             {#each AVAILABLE_TOOLS as tool}
-              <label class="tool-chip" class:active={enabledTools.has(tool.id)}>
-                <input type="checkbox" checked={enabledTools.has(tool.id)} onchange={() => toggleTool(tool.id)} disabled={loading} />
-                <span class="tool-name">{tool.label}</span>
-                <span class="tool-desc">{tool.desc}</span>
-              </label>
+              <button class="tool-chip" class:active={enabledTools.has(tool.id)} onclick={()=>toggleTool(tool.id)} disabled={loading}>
+                <span class="tool-icon">{tool.icon}</span>
+                <span class="tool-label">{tool.label}</span>
+              </button>
             {/each}
           </div>
         </div>
 
-        {#if error}<p class="error">{error}</p>{/if}
-      </section>
+        {#if error}<div class="card error-card">{error}</div>{/if}
+      </div>
     {:else}
-      <section class="status-section">
-        <div class="workflow-header">
-          <button class="back-btn" onclick={goHome}>←</button>
-          <code class="wf-id">{workflowId.replace('agentic-', '').slice(0, 8)}</code>
+      <!-- WORKFLOW VIEW -->
+      <div class="workflow-view fade-in">
+        <div class="workflow-nav">
+          <button class="back-btn" onclick={goHome}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <code class="wf-id">{workflowId?.replace('agentic-','').slice(0,8)}</code>
+          {#if wfState}
+            <span class="phase-badge" class:running={wfState.phase!=='complete'&&wfState.phase!=='failed'} class:done={wfState.phase==='complete'} class:err={wfState.phase==='failed'}>
+              {wfState.phase}
+            </span>
+          {/if}
         </div>
 
         {#if wfState}
-          <div class="phases">
-            {#each PHASES as phase}
+          <!-- Pipeline -->
+          <div class="pipeline">
+            {#each PHASES as phase, i}
               {@const idx = phaseIndex(phase)}
               {@const cur = phaseIndex(wfState.phase)}
-              <div class="phase" class:done={idx < cur} class:active={idx === cur} class:pending={idx > cur}>
-                <span class="phase-dot"></span>
-                <span class="phase-label">{PHASE_LABELS[phase]}</span>
+              {#if i > 0}<div class="pipe-line" class:done={idx<=cur}></div>{/if}
+              <div class="pipe-node" class:done={idx<cur} class:active={idx===cur} class:pending={idx>cur}>
+                <span class="pipe-num">{PHASE_ICONS[phase]}</span>
               </div>
             {/each}
           </div>
 
-          {#if wfState.totalTasks > 0}
-            <div class="progress-bar-wrap">
-              <div class="progress-bar" style="width: {(wfState.completedTasks / wfState.totalTasks) * 100}%"></div>
-            </div>
-            <p class="progress-text">
-              {wfState.completedTasks}/{wfState.totalTasks} tasks
-              {#if wfState.currentlyExecuting.length > 0}— {wfState.currentlyExecuting.length} 並列実行中{/if}
-            </p>
-          {/if}
-
-          {#if wfState.tasks.length > 0}
-            <div class="live-tasks">
-              {#each wfState.tasks as task}
-                <div class="live-task" style="border-left-color: {statusColor(task.status)}">
-                  <span class="live-task-icon" style="color: {statusColor(task.status)}">{statusIcon(task.status)}</span>
-                  <span class="live-task-desc">{task.description}</span>
-                  <span class="live-task-status">{task.status}</span>
+          <!-- Metrics cards -->
+          {#if wfState.totalTasks > 0 || result}
+            <div class="metrics">
+              <div class="metric-card">
+                <div class="metric-value">{wfState.completedTasks}<span class="metric-total">/{wfState.totalTasks}</span></div>
+                <div class="metric-label">タスク完了</div>
+                <div class="metric-bar"><div class="metric-fill" style="width:{wfState.totalTasks?(wfState.completedTasks/wfState.totalTasks)*100:0}%"></div></div>
+              </div>
+              {#if result}
+                <div class="metric-card">
+                  <div class="metric-value">{passRate()}<span class="metric-unit">%</span></div>
+                  <div class="metric-label">レビュー通過率</div>
+                  <div class="metric-bar"><div class="metric-fill green" style="width:{passRate()}%"></div></div>
                 </div>
-              {/each}
+                <div class="metric-card">
+                  <div class="metric-value">{(result.executionTimeMs/1000).toFixed(0)}<span class="metric-unit">s</span></div>
+                  <div class="metric-label">実行時間</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-value review-badge" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
+                    {result.integrationReviewPassed?'PASS':'FAIL'}
+                  </div>
+                  <div class="metric-label">統合レビュー</div>
+                </div>
+              {:else if wfState.currentlyExecuting.length > 0}
+                <div class="metric-card">
+                  <div class="metric-value">{wfState.currentlyExecuting.length}</div>
+                  <div class="metric-label">並列実行中</div>
+                </div>
+              {/if}
             </div>
           {/if}
 
+          <!-- Tasks -->
+          {#if wfState.tasks.length > 0}
+            <div class="card">
+              <div class="card-header"><span class="card-title">タスク</span></div>
+              <div class="task-grid">
+                {#each wfState.tasks as task}
+                  <button class="task-card" class:rejected={task.status==='rejected'} class:active={task.status==='executing'} onclick={()=>toggleTask(task.id)}>
+                    <div class="task-card-top">
+                      <span class="task-status-dot" style="background:{statusColor(task.status)}"></span>
+                      <span class="task-status-label">{task.status}</span>
+                    </div>
+                    <div class="task-card-desc">{task.description}</div>
+                    {#if expandedTasks.has(task.id) && (task.result || task.reviewNotes)}
+                      <div class="task-card-detail" onclick={(e: MouseEvent)=>e.stopPropagation()}>
+                        {#if task.result}<pre class="task-result">{task.result}</pre>{/if}
+                        {#if task.reviewNotes}<p class="task-review">レビュー: {task.reviewNotes}</p>{/if}
+                      </div>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Event log -->
           {#if wfState.events.length > 0}
-            <details class="event-log-section" open>
-              <summary>アクティビティログ ({wfState.events.length})</summary>
+            <details class="card event-card">
+              <summary class="card-header clickable">
+                <span class="card-title">アクティビティログ</span>
+                <span class="event-count">{wfState.events.length}</span>
+              </summary>
               <div class="event-log" bind:this={eventLogEl}>
                 {#each wfState.events as event}
                   <div class="event-row">
-                    <span class="event-time">{formatTime(event.timestamp)}</span>
-                    <span class="event-icon" style="color: {eventColor(event.kind)}">{eventIcon(event.kind)}</span>
-                    <span class="event-summary">{event.summary}</span>
+                    <span class="ev-time">{formatTime(event.timestamp)}</span>
+                    <span class="ev-dot" style="color:{eventColor(event.kind)}">{eventIcon(event.kind)}</span>
+                    <span class="ev-text">{event.summary}</span>
                   </div>
                 {/each}
               </div>
             </details>
           {/if}
         {:else if loading}
-          <p class="waiting">読み込み中…</p>
+          <div class="loading-state"><span class="spinner lg"></span><p>読み込み中...</p></div>
         {:else if error}
-          <p class="error">{error}</p>
+          <div class="card error-card">{error}</div>
         {/if}
-      </section>
 
-      {#if result}
-        <section class="result-section">
-          <h2>結果</h2>
-          <pre class="final-response">{result.finalResponse}</pre>
-          <div class="stats">
-            <span>{(result.executionTimeMs / 1000).toFixed(1)}s</span>
-            <span>{result.tasks.filter((t) => t.reviewPassed).length}/{result.tasks.length} passed</span>
-            <span class:passed={result.integrationReviewPassed} class:failed={!result.integrationReviewPassed}>
-              統合: {result.integrationReviewPassed ? '✓' : '✗'}
-            </span>
+        <!-- Result -->
+        {#if result}
+          <div class="card result-card">
+            <div class="card-header"><span class="card-title">結果</span></div>
+            <pre class="result-body">{result.finalResponse}</pre>
+            {#if result.integrationReviewNotes}
+              <div class="review-banner" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
+                {result.integrationReviewNotes}
+              </div>
+            {/if}
           </div>
-          {#if result.integrationReviewNotes}
-            <p class="review-notes">{result.integrationReviewNotes}</p>
-          {/if}
-
-          <details class="task-details">
-            <summary>タスク詳細 ({result.tasks.length})</summary>
-            <ul class="task-list">
-              {#each result.tasks as task}
-                <li class="task-item" class:rejected={!task.reviewPassed}>
-                  <button class="task-header" onclick={() => toggleTask(task.id)}>
-                    <span class="task-icon">{statusIcon(task.status)}</span>
-                    <span class="task-desc">{task.description}</span>
-                    <span class="task-toggle">{expandedTasks.has(task.id) ? '▲' : '▼'}</span>
-                  </button>
-                  {#if expandedTasks.has(task.id)}
-                    <div class="task-body">
-                      {#if task.result}<pre>{task.result}</pre>{/if}
-                      {#if task.reviewNotes}<p class="review-note">レビュー: {task.reviewNotes}</p>{/if}
-                    </div>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          </details>
-
-          <button class="reset-btn" onclick={goHome}>新規タスク</button>
-        </section>
-      {/if}
+          <button class="run-btn full" onclick={goHome}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            新しいタスク
+          </button>
+        {/if}
+      </div>
     {/if}
   </main>
 </div>
 
 <style>
-  :global(*, *::before, *::after) { box-sizing: border-box; }
-  :global(body) { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; }
-
-  .layout { display: flex; min-height: 100vh; }
-
-  /* --- Sidebar --- */
-  .sidebar {
-    width: 280px; flex-shrink: 0; background: #131620; border-right: 1px solid #1e2130;
-    display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0;
-  }
-  .sidebar-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1rem 1rem 0.75rem; border-bottom: 1px solid #1e2130;
-  }
-  .sidebar-header h2 { font-size: 1.1rem; margin: 0; color: #f8fafc; }
-  h2.clickable, h1.clickable { cursor: pointer; }
-  h2.clickable:hover, h1.clickable:hover { color: #818cf8; }
-  .new-btn {
-    background: #6366f1; color: white; border: none; border-radius: 6px;
-    padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 600; cursor: pointer;
-  }
-  .new-btn:hover { background: #4f46e5; }
-
-  .history-list { flex: 1; overflow-y: auto; padding: 0.5rem; }
-  .history-item {
-    display: flex; flex-direction: column; gap: 0.2rem; width: 100%;
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
-    padding: 0.6rem 0.7rem; color: #e2e8f0; cursor: pointer; text-align: left;
-    transition: background 0.1s;
-  }
-  .history-item:hover { background: #1e2130; }
-  .history-item.active { background: #1e1b4b; border-color: #4f46e5; }
-  .history-top { display: flex; align-items: center; justify-content: space-between; }
-  .history-badge { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-  .history-time { font-size: 0.65rem; color: #475569; }
-  .history-prompt {
-    font-size: 0.8rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; line-height: 1.3;
-  }
-  .history-item.active .history-prompt { color: #cbd5e1; }
-  .history-empty { font-size: 0.8rem; color: #475569; text-align: center; padding: 2rem 0; margin: 0; }
-
-  .overlay {
-    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-    z-index: 90; border: none; cursor: default;
+  :root {
+    --bg: #0a0b10; --bg2: #12131c; --bg3: #1a1c2a; --bg4: #232538;
+    --border: #2a2d42; --border2: #363a54;
+    --text: #e8ecf4; --text2: #a0a8c0; --muted: #5a6180;
+    --blue: #6c7cff; --blue2: #4f5ccc; --purple: #a78bfa; --cyan: #67e8f9;
+    --green: #5ee8a0; --teal: #4fd1c5; --amber: #fbbf24; --red: #f87171;
+    --radius: 12px; --radius-sm: 8px;
   }
 
-  /* --- Main --- */
-  main { flex: 1; min-width: 0; padding: 1.5rem 2rem; max-width: 900px; }
+  :global(*,*::before,*::after) { box-sizing: border-box; }
+  :global(body) { margin:0; font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; }
 
-  .topbar { display: none; }
+  .layout { display:flex; min-height:100vh; }
 
-  .hamburger {
-    display: flex; flex-direction: column; gap: 4px; background: none; border: none;
-    padding: 0.5rem; cursor: pointer;
-  }
-  .hamburger span { display: block; width: 20px; height: 2px; background: #94a3b8; border-radius: 1px; }
+  /* Sidebar */
+  .sidebar { width:280px; flex-shrink:0; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  .sidebar-header { display:flex; align-items:center; justify-content:space-between; padding:1.2rem 1rem; border-bottom:1px solid var(--border); }
+  .logo { display:flex; align-items:center; gap:0.5rem; background:none; border:none; color:var(--text); cursor:pointer; padding:0; }
+  .logo-icon { width:28px; height:28px; background:linear-gradient(135deg,var(--blue),var(--purple)); border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.85rem; color:white; }
+  .logo-text { font-size:1.05rem; font-weight:700; letter-spacing:-0.02em; }
+  .new-btn { display:flex; align-items:center; gap:0.35rem; background:var(--bg3); border:1px solid var(--border); color:var(--text2); border-radius:var(--radius-sm); padding:0.35rem 0.65rem; font-size:0.75rem; font-weight:500; cursor:pointer; transition:all 0.15s; }
+  .new-btn:hover { background:var(--bg4); color:var(--text); border-color:var(--border2); }
 
-  h1 { font-size: 1.4rem; font-weight: 700; margin: 0; color: #f8fafc; }
+  .history-list { flex:1; overflow-y:auto; padding:0.5rem; }
+  .history-item { display:flex; gap:0.6rem; width:100%; background:transparent; border:none; border-radius:var(--radius-sm); padding:0.55rem 0.6rem; color:var(--text); cursor:pointer; text-align:left; transition:background 0.12s; }
+  .history-item:hover { background:var(--bg3); }
+  .history-item.active { background:rgba(108,124,255,0.12); }
+  .history-indicator { width:3px; border-radius:2px; flex-shrink:0; align-self:stretch; }
+  .history-content { flex:1; min-width:0; }
+  .history-prompt { font-size:0.8rem; color:var(--text2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.4; }
+  .history-item.active .history-prompt { color:var(--text); }
+  .history-meta { display:flex; justify-content:space-between; font-size:0.65rem; color:var(--muted); margin-top:0.15rem; }
+  .history-empty { text-align:center; padding:3rem 1rem; }
+  .history-empty p { margin:0; font-size:0.85rem; color:var(--muted); }
+  .history-empty .sub { font-size:0.75rem; margin-top:0.3rem; opacity:0.6; }
 
-  /* --- Input --- */
-  .input-section { display: flex; flex-direction: column; gap: 0.75rem; }
-  label { font-size: 0.85rem; color: #94a3b8; font-weight: 500; }
-  textarea {
-    background: #1e2130; border: 1px solid #2d3748; border-radius: 8px;
-    color: #e2e8f0; font-size: 0.95rem; padding: 0.75rem;
-    resize: vertical; outline: none; transition: border-color 0.15s; font-family: inherit;
-  }
-  textarea:focus { border-color: #6366f1; }
-  .form-row { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
-  .options { display: flex; align-items: center; gap: 0.5rem; }
-  select {
-    background: #1e2130; border: 1px solid #2d3748; border-radius: 6px;
-    color: #e2e8f0; padding: 0.4rem 0.6rem; font-size: 0.85rem; outline: none;
-  }
-  .submit-btn {
-    background: #6366f1; color: white; border: none; border-radius: 8px;
-    padding: 0.55rem 1.5rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
-  }
-  .submit-btn:hover:not(:disabled) { background: #4f46e5; }
-  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:90; border:none; cursor:default; backdrop-filter:blur(2px); }
 
-  .tools-section { display: flex; flex-direction: column; gap: 0.4rem; }
-  .tools-label { font-size: 0.8rem; color: #64748b; font-weight: 500; }
-  .tools-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-  .tool-presets { display: flex; gap: 0.25rem; }
-  .preset-btn {
-    background: #1e2130; border: 1px solid #2d3748; color: #64748b;
-    padding: 0.2rem 0.5rem; font-size: 0.7rem; border-radius: 4px; cursor: pointer;
-  }
-  .preset-btn:hover:not(:disabled) { background: #252d3d; color: #94a3b8; }
-  .tools-grid { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-  .tool-chip {
-    display: flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.5rem;
-    background: #1e2130; border: 1px solid #2d3748; border-radius: 5px;
-    cursor: pointer; font-size: 0.75rem; transition: border-color 0.15s;
-  }
-  .tool-chip:hover { background: #252d3d; }
-  .tool-chip.active { border-color: #6366f1; background: #1e1b4b; }
-  .tool-chip input[type='checkbox'] { accent-color: #6366f1; margin: 0; width: 12px; height: 12px; }
-  .tool-name { color: #cbd5e1; font-weight: 600; }
-  .tool-desc { color: #475569; font-size: 0.65rem; }
+  /* Main */
+  main { flex:1; min-width:0; padding:2rem 2.5rem; max-width:960px; }
+  .topbar { display:none; }
+  .hamburger { display:flex; flex-direction:column; gap:4px; background:none; border:none; padding:0.5rem; cursor:pointer; }
+  .hamburger span { display:block; width:20px; height:2px; background:var(--text2); border-radius:1px; }
+  .topbar-title { font-size:1rem; font-weight:700; color:var(--text); cursor:pointer; }
 
-  .error { color: #f87171; font-size: 0.85rem; margin: 0; }
+  /* Animations */
+  .fade-in { animation:fadeIn 0.3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes spin { to{transform:rotate(360deg)} }
 
-  /* --- Status --- */
-  .status-section { display: flex; flex-direction: column; gap: 0.75rem; }
-  .workflow-header { display: flex; align-items: center; gap: 0.5rem; }
-  .back-btn {
-    background: none; border: 1px solid #2d3748; color: #94a3b8;
-    padding: 0.2rem 0.5rem; font-size: 0.8rem; border-radius: 4px; cursor: pointer;
-  }
-  .back-btn:hover { background: #1e2130; color: #e2e8f0; }
-  .wf-id { font-size: 0.75rem; color: #475569; font-family: monospace; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:white; border-radius:50%; animation:spin 0.6s linear infinite; }
+  .spinner.lg { width:24px; height:24px; border-width:3px; }
+  .loading-state { display:flex; flex-direction:column; align-items:center; gap:1rem; padding:4rem 0; color:var(--muted); }
 
-  .phases { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-  .phase { display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; opacity: 0.35; }
-  .phase.done { opacity: 0.7; color: #6ee7b7; }
-  .phase.active { opacity: 1; color: #818cf8; font-weight: 600; }
-  .phase-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .phase.active .phase-dot { animation: pulse 1.2s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  /* Home */
+  .hero { margin-bottom:2rem; }
+  h1 { font-size:1.8rem; font-weight:800; margin:0 0 0.3rem; letter-spacing:-0.03em; background:linear-gradient(135deg,var(--text),var(--blue)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .hero-sub { color:var(--muted); font-size:0.9rem; margin:0; }
 
-  .progress-bar-wrap { background: #1e2130; border-radius: 99px; height: 5px; overflow: hidden; }
-  .progress-bar { height: 100%; background: linear-gradient(90deg, #6366f1, #818cf8); border-radius: 99px; transition: width 0.5s ease; }
-  .progress-text { font-size: 0.8rem; color: #64748b; margin: 0; }
-  .waiting { color: #475569; font-size: 0.85rem; }
+  /* Card */
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:1rem; overflow:hidden; }
+  .card-header { display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1rem; border-bottom:1px solid var(--border); }
+  .card-header.clickable { cursor:pointer; }
+  .card-header.clickable:hover { background:var(--bg3); }
+  .card-title { font-size:0.8rem; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.05em; }
 
-  .live-tasks { display: flex; flex-direction: column; gap: 0.25rem; }
-  .live-task {
-    display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem;
-    background: #1e2130; border-left: 3px solid #475569; border-radius: 0 6px 6px 0; font-size: 0.8rem;
-  }
-  .live-task-icon { width: 1rem; text-align: center; flex-shrink: 0; font-weight: 700; }
-  .live-task-desc { flex: 1; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .live-task-status { font-size: 0.65rem; color: #475569; text-transform: uppercase; }
+  /* Input card */
+  .input-card { padding:1rem; border:1px solid var(--border); }
+  .input-card textarea { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:0.95rem; padding:0.8rem; resize:vertical; outline:none; font-family:inherit; transition:border-color 0.15s; }
+  .input-card textarea:focus { border-color:var(--blue); }
+  .input-card textarea::placeholder { color:var(--muted); }
+  .input-footer { display:flex; align-items:center; justify-content:space-between; margin-top:0.75rem; gap:0.75rem; }
+  .input-options select { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text2); padding:0.4rem 0.6rem; font-size:0.8rem; outline:none; }
+  .run-btn { display:inline-flex; align-items:center; gap:0.4rem; background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; border:none; border-radius:var(--radius-sm); padding:0.55rem 1.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:opacity 0.15s,transform 0.1s; }
+  .run-btn:hover:not(:disabled) { opacity:0.9; transform:translateY(-1px); }
+  .run-btn:active:not(:disabled) { transform:translateY(0); }
+  .run-btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .run-btn.full { width:100%; justify-content:center; margin-top:1rem; }
 
-  .event-log-section { margin-top: 0.25rem; }
-  .event-log-section summary { font-size: 0.8rem; color: #64748b; cursor: pointer; font-weight: 500; }
-  .event-log-section summary:hover { color: #94a3b8; }
-  .event-log {
-    background: #161822; border: 1px solid #1e2130; border-radius: 6px;
-    max-height: 250px; overflow-y: auto; padding: 0.4rem;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.7rem; margin-top: 0.4rem;
-  }
-  .event-row { display: flex; align-items: baseline; gap: 0.4rem; padding: 0.15rem 0.3rem; border-radius: 3px; }
-  .event-row:hover { background: #1e2130; }
-  .event-time { color: #334155; flex-shrink: 0; }
-  .event-icon { width: 0.8rem; text-align: center; flex-shrink: 0; }
-  .event-summary { color: #94a3b8; word-break: break-word; }
+  /* Tools card */
+  .tools-card { padding:0; }
+  .tools-card .card-header { padding:0.6rem 1rem; }
+  .tool-presets { display:flex; gap:0.25rem; }
+  .pill { background:var(--bg); border:1px solid var(--border); color:var(--muted); padding:0.2rem 0.55rem; font-size:0.65rem; border-radius:99px; cursor:pointer; transition:all 0.12s; font-weight:500; }
+  .pill:hover { border-color:var(--border2); color:var(--text2); }
+  .pill.active { background:var(--blue); border-color:var(--blue); color:white; }
+  .tools-grid { display:flex; flex-wrap:wrap; gap:0.35rem; padding:0.65rem 0.8rem; }
+  .tool-chip { display:flex; align-items:center; gap:0.3rem; padding:0.3rem 0.55rem; background:var(--bg); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:0.75rem; transition:all 0.12s; color:var(--text2); }
+  .tool-chip:hover { border-color:var(--border2); background:var(--bg3); }
+  .tool-chip.active { border-color:var(--blue); background:rgba(108,124,255,0.1); color:var(--text); }
+  .tool-icon { font-size:0.8rem; }
+  .tool-label { font-weight:500; }
 
-  /* --- Result --- */
-  .result-section { margin-top: 1.5rem; }
-  h2 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.75rem; color: #f8fafc; }
-  .final-response {
-    background: #1e2130; border: 1px solid #2d3748; border-radius: 8px; padding: 1rem;
-    white-space: pre-wrap; word-break: break-word; font-family: inherit;
-    font-size: 0.85rem; line-height: 1.6; color: #e2e8f0; margin: 0;
-  }
-  .stats { display: flex; gap: 1rem; margin-top: 0.5rem; font-size: 0.8rem; color: #64748b; }
-  .stats .passed { color: #6ee7b7; }
-  .stats .failed { color: #f87171; }
-  .review-notes { font-size: 0.8rem; color: #64748b; margin: 0.4rem 0 0; }
+  .error-card { padding:0.8rem 1rem; color:var(--red); font-size:0.85rem; border-color:rgba(248,113,113,0.3); background:rgba(248,113,113,0.06); }
 
-  .task-details { margin-top: 0.75rem; }
-  .task-details summary { font-size: 0.85rem; color: #64748b; cursor: pointer; font-weight: 500; }
-  .task-details summary:hover { color: #94a3b8; }
-  .task-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.4rem; }
-  .task-item { background: #1e2130; border: 1px solid #2d3748; border-radius: 8px; overflow: hidden; }
-  .task-item.rejected { border-color: #7f1d1d; }
-  .task-header {
-    display: flex; align-items: center; gap: 0.6rem; width: 100%;
-    background: none; border: none; border-radius: 0; padding: 0.6rem 0.8rem;
-    color: #e2e8f0; font-size: 0.85rem; cursor: pointer; text-align: left;
-  }
-  .task-header:hover { background: #252d3d; }
-  .task-icon { width: 1rem; text-align: center; flex-shrink: 0; color: #6ee7b7; }
-  .task-item.rejected .task-icon { color: #f87171; }
-  .task-desc { flex: 1; color: #cbd5e1; }
-  .task-toggle { color: #334155; font-size: 0.65rem; flex-shrink: 0; }
-  .task-body { padding: 0.6rem 0.8rem; border-top: 1px solid #2d3748; }
-  .task-body pre {
-    background: #0f1117; border-radius: 6px; padding: 0.6rem;
-    white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; line-height: 1.5; margin: 0; color: #94a3b8;
-  }
-  .review-note { font-size: 0.75rem; color: #64748b; margin: 0.4rem 0 0; }
-  .reset-btn {
-    margin-top: 1rem; background: #1e2130; border: 1px solid #2d3748; color: #94a3b8;
-    padding: 0.5rem 1.2rem; font-size: 0.85rem; border-radius: 6px; cursor: pointer;
-  }
-  .reset-btn:hover { background: #252d3d; }
+  /* Workflow view */
+  .workflow-nav { display:flex; align-items:center; gap:0.6rem; margin-bottom:1.5rem; }
+  .back-btn { background:none; border:1px solid var(--border); color:var(--text2); padding:0.3rem; border-radius:6px; cursor:pointer; display:flex; align-items:center; transition:all 0.12s; }
+  .back-btn:hover { background:var(--bg3); color:var(--text); }
+  .wf-id { font-size:0.75rem; color:var(--muted); }
+  .phase-badge { font-size:0.65rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; padding:0.2rem 0.5rem; border-radius:99px; }
+  .phase-badge.running { background:rgba(108,124,255,0.15); color:var(--blue); animation:pulse 1.5s infinite; }
+  .phase-badge.done { background:rgba(94,232,160,0.15); color:var(--green); }
+  .phase-badge.err { background:rgba(248,113,113,0.15); color:var(--red); }
 
-  /* --- Mobile --- */
-  @media (max-width: 768px) {
-    .sidebar {
-      position: fixed; left: 0; top: 0; z-index: 100;
-      transform: translateX(-100%); transition: transform 0.2s ease;
-      width: 280px;
-    }
-    .sidebar.open { transform: translateX(0); }
-    .overlay { display: block; }
-    .topbar {
-      display: flex; align-items: center; gap: 0.75rem;
-      margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #1e2130;
-    }
-    main { padding: 1rem; }
+  /* Pipeline */
+  .pipeline { display:flex; align-items:center; margin-bottom:1.5rem; gap:0; }
+  .pipe-node { width:32px; height:32px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; color:var(--muted); background:var(--bg2); transition:all 0.3s; flex-shrink:0; }
+  .pipe-node.done { border-color:var(--green); color:var(--green); background:rgba(94,232,160,0.08); }
+  .pipe-node.active { border-color:var(--blue); color:white; background:var(--blue); animation:pulse 1.5s infinite; }
+  .pipe-line { flex:1; height:2px; background:var(--border); transition:background 0.3s; }
+  .pipe-line.done { background:var(--green); }
+
+  /* Metrics */
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:0.75rem; margin-bottom:1rem; }
+  .metric-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; }
+  .metric-value { font-size:1.6rem; font-weight:800; letter-spacing:-0.03em; color:var(--text); }
+  .metric-total { font-size:0.9rem; font-weight:500; color:var(--muted); }
+  .metric-unit { font-size:0.85rem; font-weight:500; color:var(--muted); }
+  .metric-label { font-size:0.7rem; color:var(--muted); margin-top:0.25rem; text-transform:uppercase; letter-spacing:0.04em; }
+  .metric-bar { height:4px; background:var(--bg4); border-radius:99px; margin-top:0.5rem; overflow:hidden; }
+  .metric-fill { height:100%; background:linear-gradient(90deg,var(--blue),var(--purple)); border-radius:99px; transition:width 0.5s ease; }
+  .metric-fill.green { background:linear-gradient(90deg,var(--green),var(--teal)); }
+  .review-badge { font-size:1.1rem !important; font-weight:800; letter-spacing:0.05em; }
+  .review-badge.pass { color:var(--green); }
+  .review-badge.fail { color:var(--red); }
+
+  /* Task grid */
+  .task-grid { display:flex; flex-direction:column; gap:0.5rem; padding:0.75rem; }
+  .task-card { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.7rem 0.85rem; text-align:left; cursor:pointer; transition:all 0.12s; color:var(--text); }
+  .task-card:hover { border-color:var(--border2); background:var(--bg3); }
+  .task-card.active { border-color:var(--blue); }
+  .task-card.rejected { border-color:rgba(248,113,113,0.3); }
+  .task-card-top { display:flex; align-items:center; gap:0.4rem; margin-bottom:0.3rem; }
+  .task-status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .task-card.active .task-status-dot { animation:pulse 1.2s infinite; }
+  .task-status-label { font-size:0.65rem; color:var(--muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em; }
+  .task-card-desc { font-size:0.82rem; color:var(--text2); line-height:1.4; }
+  .task-card-detail { margin-top:0.6rem; padding-top:0.6rem; border-top:1px solid var(--border); }
+  .task-result { background:var(--bg2); border-radius:6px; padding:0.6rem; white-space:pre-wrap; word-break:break-word; font-size:0.72rem; line-height:1.5; margin:0; color:var(--text2); max-height:300px; overflow-y:auto; }
+  .task-review { font-size:0.72rem; color:var(--muted); margin:0.4rem 0 0; }
+
+  /* Event log */
+  .event-card { border:1px solid var(--border); }
+  .event-card summary { list-style:none; }
+  .event-card summary::-webkit-details-marker { display:none; }
+  .event-count { font-size:0.65rem; background:var(--bg4); color:var(--text2); padding:0.15rem 0.45rem; border-radius:99px; font-weight:600; }
+  .event-log { max-height:260px; overflow-y:auto; padding:0.5rem; font-family:'JetBrains Mono','Fira Code',monospace; font-size:0.7rem; }
+  .event-row { display:flex; align-items:baseline; gap:0.4rem; padding:0.18rem 0.4rem; border-radius:4px; }
+  .event-row:hover { background:var(--bg3); }
+  .ev-time { color:var(--muted); flex-shrink:0; font-size:0.65rem; opacity:0.7; }
+  .ev-dot { width:0.8rem; text-align:center; flex-shrink:0; }
+  .ev-text { color:var(--text2); word-break:break-word; }
+
+  /* Result */
+  .result-card .card-header { border-bottom:1px solid var(--border); }
+  .result-body { padding:1rem; white-space:pre-wrap; word-break:break-word; font-family:inherit; font-size:0.85rem; line-height:1.7; color:var(--text); margin:0; }
+  .review-banner { padding:0.75rem 1rem; font-size:0.8rem; line-height:1.5; border-top:1px solid var(--border); }
+  .review-banner.pass { background:rgba(94,232,160,0.05); color:var(--green); }
+  .review-banner.fail { background:rgba(248,113,113,0.05); color:var(--red); }
+
+  /* Mobile */
+  @media (max-width:768px) {
+    .sidebar { position:fixed; left:0; top:0; z-index:100; transform:translateX(-100%); transition:transform 0.25s cubic-bezier(0.4,0,0.2,1); width:280px; }
+    .sidebar.open { transform:translateX(0); }
+    .overlay { display:block; }
+    .topbar { display:flex; align-items:center; gap:0.75rem; margin-bottom:1.5rem; }
+    main { padding:1rem 1.25rem; }
+    .hero h1 { font-size:1.4rem; }
+    .metrics { grid-template-columns:repeat(2,1fr); }
   }
 </style>
