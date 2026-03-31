@@ -16,6 +16,7 @@ export interface WorkflowInput {
   allowedTools?: string[];
   maxPipelineRetries?: number;
   maxTaskRetries?: number;
+  workflowId?: string;
 }
 
 export interface WorkflowOutput {

@@ -40,6 +40,7 @@ export const cancelSignal = defineSignal('cancel');
 async function executeDag(
   tasks: Task[],
   completedResults: Map<string, string>,
+  resultFilePaths: Map<string, string>,
   allToolEvidence: ToolEvidenceEntry[],
   state: WorkflowState,
   originalPrompt: string,
@@ -48,6 +49,7 @@ async function executeDag(
   emit: (kind: ActivityEventKind, summary: string, taskId?: string, taskDescription?: string) => void,
   allowedTools?: string[],
   maxTaskRetries: number = 0,
+  workflowId?: string,
 ): Promise<void> {
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const done = new Set<string>();
@@ -73,6 +75,7 @@ async function executeDag(
       ready.map(async (task) => {
         let taskAttempt = 0;
         let lastReviewNotes = '';
+        let lastResultFilePath: string | undefined;
 
         while (taskAttempt <= maxTaskRetries) {
           taskAttempt++;
@@ -99,9 +102,11 @@ async function executeDag(
             originalPrompt,
             model,
             allowedTools,
+            workflowId,
           });
 
           task.result = execResult.result;
+          lastResultFilePath = execResult.resultFilePath;
           task.status = 'executed';
           const taskToolUsage = execResult.toolUsage ?? [];
           if (taskToolUsage.length > 0) {
@@ -122,6 +127,7 @@ async function executeDag(
           const review = await reviewerActivity({
             task,
             result: execResult.result,
+            resultFilePath: execResult.resultFilePath,
             originalPrompt,
             model,
             toolUsage: taskToolUsage,
@@ -150,6 +156,9 @@ async function executeDag(
         }
 
         completedResults.set(task.id, task.result!);
+        if (lastResultFilePath) {
+          resultFilePaths.set(task.id, lastResultFilePath);
+        }
         done.add(task.id);
         state.completedTasks = done.size;
       }),
@@ -264,9 +273,10 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     log.info('Starting execution phase');
 
     const completedResults = new Map<string, string>();
+    const resultFilePaths = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
     const maxTaskRetries = input.maxTaskRetries ?? 0;
-    await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools, maxTaskRetries);
+    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools, maxTaskRetries, input.workflowId);
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
@@ -278,11 +288,18 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     emit('integrator_start', `統合開始: ${reviewedTasks.length}タスクの結果を統合`);
     log.info('Starting integration phase', { reviewedCount: reviewedTasks.length, rejectedCount: tasks.length - reviewedTasks.length });
 
-    const { integratedResponse } = await integratorActivity({
+    // Build file path list for integrator
+    const taskResultFiles = reviewedTasks
+      .filter((t) => resultFilePaths.has(t.id))
+      .map((t) => ({ taskId: t.id, description: t.description, filePath: resultFilePaths.get(t.id)! }));
+
+    const { integratedResponse, integratedResponseFilePath } = await integratorActivity({
       originalPrompt: input.prompt,
       reviewedTasks,
+      taskResultFiles: taskResultFiles.length > 0 ? taskResultFiles : undefined,
       model,
       allowedTools: input.allowedTools,
+      workflowId: input.workflowId,
     });
     emit('integrator_done', '統合完了');
 
@@ -294,6 +311,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     const integrationReview = await integrationReviewerActivity({
       originalPrompt: input.prompt,
       integratedResponse,
+      integratedResponseFilePath,
       model,
       toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
     });

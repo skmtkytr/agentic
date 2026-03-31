@@ -4,10 +4,21 @@ import { ReviewerResultSchema } from '../types/schemas';
 import type { ReviewerRequest, ReviewerResponse } from '../types/agents';
 
 export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerResponse> {
-  log.info('Reviewer started', { taskId: req.task.id });
+  log.info('Reviewer started', { taskId: req.task.id, hasFilePath: !!req.resultFilePath });
+
+  // If file path available, instruct LLM to read file instead of embedding full text
+  const resultSection = req.resultFilePath
+    ? `実行結果はファイルに保存されています。Read ツールで以下のファイルを読んでからレビューしてください:\n${req.resultFilePath}`
+    : `レビュー対象の実行結果:\n${req.result}`;
+
+  const toolEvidenceSection = req.toolUsage && req.toolUsage.length > 0
+    ? `\nツール使用の証跡:\n${req.toolUsage.map((t) => `- ${t.tool}: 入力="${t.input}" → 出力="${t.output.slice(0, 200)}"`).join('\n')}`
+    : '';
 
   const result = await callStructured(ReviewerResultSchema, {
     model: req.model,
+    // Allow Read tool so LLM can read the result file
+    allowedTools: req.resultFilePath ? ['Read'] : undefined,
     system: `あなたは品質レビューエージェントです。タスクの実行結果が完全かつ正確かを評価してください。
 
 評価基準:
@@ -36,11 +47,8 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
 
 タスク: ${req.task.description}
 
-レビュー対象の実行結果:
-${req.result}
-${req.toolUsage && req.toolUsage.length > 0
-  ? `\nツール使用の証跡:\n${req.toolUsage.map((t) => `- ${t.tool}: 入力="${t.input}" → 出力="${t.output.slice(0, 200)}"`).join('\n')}`
-  : ''}
+${resultSection}
+${toolEvidenceSection}
 タスクID: ${req.task.id}`,
   });
 

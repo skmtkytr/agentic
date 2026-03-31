@@ -1,13 +1,28 @@
 import { log } from '@temporalio/activity';
 import { callRawText } from '../llm/parseWithRetry';
+import { writeIntegratedResult } from './artifactStore';
 import type { IntegratorRequest, IntegratorResponse } from '../types/agents';
 
 export async function integratorActivity(req: IntegratorRequest): Promise<IntegratorResponse> {
-  log.info('Integrator started', { taskCount: req.reviewedTasks.length });
+  log.info('Integrator started', { taskCount: req.reviewedTasks.length, hasFiles: !!req.taskResultFiles?.length });
 
-  const taskResultsSection = req.reviewedTasks
-    .map((t) => `### ${t.description}\n${t.result ?? '(no result)'}`)
-    .join('\n\n');
+  // Build task section: use file paths if available, otherwise inline results
+  let taskResultsSection: string;
+  if (req.taskResultFiles && req.taskResultFiles.length > 0) {
+    taskResultsSection = req.taskResultFiles
+      .map((f) => `### ${f.description}\nRead ツールで以下のファイルを読んでください: ${f.filePath}`)
+      .join('\n\n');
+  } else {
+    taskResultsSection = req.reviewedTasks
+      .map((t) => `### ${t.description}\n${t.result ?? '(no result)'}`)
+      .join('\n\n');
+  }
+
+  const needsReadTool = !!req.taskResultFiles?.length;
+  const tools = [...(req.allowedTools ?? [])];
+  if (needsReadTool && !tools.includes('Read')) {
+    tools.push('Read');
+  }
 
   const { text: integratedResponse } = await callRawText({
     model: req.model,
@@ -26,7 +41,7 @@ export async function integratorActivity(req: IntegratorRequest): Promise<Integr
 - 回答の末尾に「## 情報源」セクションを設け、参照したURLやソースを箇条書きで列挙してください
 - 具体的な数値やデータを記載する場合は、そのデータの出典を明記してください
 - 情報源が不明なデータは「出典未確認」と注記してください`,
-    allowedTools: req.allowedTools,
+    allowedTools: tools.length > 0 ? tools : undefined,
     userContent: `元のリクエスト: ${req.originalPrompt}
 
 統合対象のタスク実行結果:
@@ -36,6 +51,12 @@ ${taskResultsSection}
 これらの結果を元のリクエストに対する包括的で統一された回答に日本語で統合してください。`,
   });
 
-  log.info('Integrator completed', { responseLength: integratedResponse.length });
-  return { integratedResponse };
+  // Write integrated result to file
+  let integratedResponseFilePath: string | undefined;
+  if (req.workflowId) {
+    integratedResponseFilePath = await writeIntegratedResult(req.workflowId, integratedResponse);
+  }
+
+  log.info('Integrator completed', { responseLength: integratedResponse.length, filePath: integratedResponseFilePath });
+  return { integratedResponse, integratedResponseFilePath };
 }

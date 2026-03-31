@@ -46,7 +46,8 @@ export async function callStructured<T extends z.ZodTypeAny>(
     prompt:
       opts.userContent +
       '\n\nYou MUST respond with ONLY valid JSON. No explanations, no markdown code blocks, just raw JSON.',
-    jsonMode: true,
+    jsonMode: !opts.allowedTools?.length,
+    allowedTools: opts.allowedTools,
   });
 
   if (!resultText) {

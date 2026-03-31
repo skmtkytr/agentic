@@ -38,17 +38,21 @@ export interface ExecutorRequest {
   originalPrompt: string;
   model: string;
   allowedTools?: string[];
+  workflowId?: string;
 }
 
 export interface ExecutorResponse {
   taskId: string;
   result: string;
+  resultFilePath?: string;
   toolUsage?: ToolUsageRecord[];
+  toolEvidenceFilePath?: string;
 }
 
 export interface ReviewerRequest {
   task: Task;
   result: string;
+  resultFilePath?: string;
   originalPrompt: string;
   model: string;
   toolUsage?: ToolUsageRecord[];
@@ -64,17 +68,21 @@ export interface ReviewerResponse {
 export interface IntegratorRequest {
   originalPrompt: string;
   reviewedTasks: Task[];
+  taskResultFiles?: Array<{ taskId: string; description: string; filePath: string }>;
   model: string;
   allowedTools?: string[];
+  workflowId?: string;
 }
 
 export interface IntegratorResponse {
   integratedResponse: string;
+  integratedResponseFilePath?: string;
 }
 
 export interface IntegrationReviewerRequest {
   originalPrompt: string;
   integratedResponse: string;
+  integratedResponseFilePath?: string;
   model: string;
   toolEvidence?: ToolEvidenceEntry[];
 }

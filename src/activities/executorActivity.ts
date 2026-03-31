@@ -1,5 +1,6 @@
 import { log } from '@temporalio/activity';
 import { callRawText } from '../llm/parseWithRetry';
+import { writeTaskResult, writeToolEvidence } from './artifactStore';
 import type { ExecutorRequest, ExecutorResponse } from '../types/agents';
 
 export async function executorActivity(req: ExecutorRequest): Promise<ExecutorResponse> {
@@ -31,10 +32,21 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     allowedTools: req.allowedTools,
   });
 
+  // Write result and tool evidence to files
+  let resultFilePath: string | undefined;
+  let toolEvidenceFilePath: string | undefined;
+  if (req.workflowId) {
+    resultFilePath = await writeTaskResult(req.workflowId, req.task.id, text);
+    if (toolUsage.length > 0) {
+      toolEvidenceFilePath = await writeToolEvidence(req.workflowId, req.task.id, toolUsage);
+    }
+  }
+
   log.info('Executor completed', {
     taskId: req.task.id,
     resultLength: text.length,
     toolUsageCount: toolUsage.length,
+    resultFilePath,
   });
-  return { taskId: req.task.id, result: text, toolUsage };
+  return { taskId: req.task.id, result: text, resultFilePath, toolUsage, toolEvidenceFilePath };
 }

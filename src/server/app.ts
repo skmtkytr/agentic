@@ -45,6 +45,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         allowedTools,
         maxPipelineRetries: maxPipelineRetries ?? 0,
         maxTaskRetries: maxTaskRetries ?? 0,
+        workflowId,
       };
 
       await client.workflow.start(agenticWorkflow, {

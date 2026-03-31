@@ -9,25 +9,25 @@ import type {
 export async function integrationReviewerActivity(
   req: IntegrationReviewerRequest,
 ): Promise<IntegrationReviewerResponse> {
+  const hasFilePath = !!req.integratedResponseFilePath;
   log.info('Integration reviewer started', {
     responseLength: req.integratedResponse.length,
     toolEvidenceCount: req.toolEvidence?.length ?? 0,
+    hasFilePath,
   });
 
-  // Truncate long responses to avoid exceeding context limits
-  const MAX_RESPONSE_CHARS = 15000;
-  let responseForReview = req.integratedResponse;
-  let truncated = false;
-  if (responseForReview.length > MAX_RESPONSE_CHARS) {
-    truncated = true;
-    responseForReview = responseForReview.slice(0, MAX_RESPONSE_CHARS) + '\n\n[... 以下省略（全文が長すぎるため先頭部分のみレビュー対象）...]';
-    log.warn('Integrated response truncated for review', {
-      original: req.integratedResponse.length,
-      truncated: responseForReview.length,
-    });
-  }
+  // If file path is available, instruct LLM to read it via Read tool
+  const responseSection = hasFilePath
+    ? `統合回答はファイルに保存されています。Read ツールで以下のファイルを読んでからレビューしてください:\n${req.integratedResponseFilePath}`
+    : (() => {
+        const MAX_RESPONSE_CHARS = 15000;
+        if (req.integratedResponse.length > MAX_RESPONSE_CHARS) {
+          log.warn('Integrated response truncated for review', { original: req.integratedResponse.length });
+          return req.integratedResponse.slice(0, MAX_RESPONSE_CHARS) + '\n\n[... 以下省略 ...]';
+        }
+        return req.integratedResponse;
+      })();
 
-  // Limit tool evidence to summary
   const MAX_EVIDENCE = 10;
   const toolEvidenceSection = req.toolEvidence && req.toolEvidence.length > 0
     ? `\nツール使用証跡 (${req.toolEvidence.length}件):\n${req.toolEvidence.slice(0, MAX_EVIDENCE).map((e) => `- [${e.taskDescription.slice(0, 40)}] ${e.tool}: ${e.input.slice(0, 60)}`).join('\n')}${req.toolEvidence.length > MAX_EVIDENCE ? `\n... 他${req.toolEvidence.length - MAX_EVIDENCE}件` : ''}`
@@ -35,7 +35,8 @@ export async function integrationReviewerActivity(
 
   const result = await callStructured(IntegrationReviewerResultSchema, {
     model: req.model,
-    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。${truncated ? '\n\n注意: 回答が非常に長いため、先頭部分のみ提示されています。構造・品質・方向性を中心にレビューしてください。' : ''}
+    allowedTools: hasFilePath ? ['Read'] : undefined,
+    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。
 
 チェック項目:
 1. 回答が元のリクエストに対して完全かつ正確に対応しているか
@@ -62,7 +63,7 @@ export async function integrationReviewerActivity(
     userContent: `元のリクエスト: ${req.originalPrompt}
 
 レビュー対象の統合回答:
-${responseForReview}
+${responseSection}
 ${toolEvidenceSection}`,
   });
 
