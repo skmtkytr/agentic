@@ -221,7 +221,16 @@
               </div>
             </div>
 
-            <!-- Fan-out visual handled by dag-parallel box -->
+            <!-- Vertical connector: Validator → Parallel zone -->
+            <div class="v-connector" class:done={cur>=2} class:flowing={cur===1}>
+              <div class="v-line-bg"></div>
+              {#if cur>=2}<div class="v-line-fill"></div>{/if}
+              {#if cur===1}
+                <div class="v-particle vp1"></div>
+                <div class="v-particle vp2"></div>
+              {/if}
+              <div class="v-arrow" class:done={cur>=2}>▼</div>
+            </div>
 
             <!-- Row 2: Executor×N → Reviewer×N (parallel lanes) -->
             <div class="dag-parallel">
@@ -250,7 +259,18 @@
               {/each}
             </div>
 
-            <!-- Fan-in connector + Integrator → Integration Reviewer -->
+            <!-- Vertical connector: Parallel zone → Integrator -->
+            <div class="v-connector" class:done={cur>=3} class:flowing={cur===2}>
+              <div class="v-line-bg"></div>
+              {#if cur>=3}<div class="v-line-fill"></div>{/if}
+              {#if cur===2}
+                <div class="v-particle vp1"></div>
+                <div class="v-particle vp2"></div>
+              {/if}
+              <div class="v-arrow" class:done={cur>=3}>▼</div>
+            </div>
+
+            <!-- Row 3: Integrator → Integration Reviewer → Complete -->
             <div class="dag-row">
               <div class="pipe-node" class:done={cur>3} class:active={cur===3} style="--node-color:{PHASE_META.integrating.color}">
                 <div class="pipe-icon">{PHASE_META.integrating.icon}</div>
@@ -498,7 +518,37 @@
   }
   .dag-parallel::before { content:'並列実行'; position:absolute; top:-0.5rem; left:1rem; font-size:0.55rem; color:var(--muted); background:var(--bg3); padding:0 0.4rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
   .dag-lane { display:flex; align-items:center; gap:0; }
-  .dag-fanout { display:none; } /* SVG fan-out hidden for now, using box instead */
+  /* Vertical connectors between rows */
+  .v-connector {
+    display:flex; flex-direction:column; align-items:center;
+    height:36px; position:relative; width:20px;
+  }
+  .v-line-bg { position:absolute; left:50%; top:0; bottom:12px; width:2px; background:var(--border); transform:translateX(-50%); }
+  .v-line-fill {
+    position:absolute; left:50%; top:0; bottom:12px; width:2px;
+    background:var(--green); transform:translateX(-50%);
+    animation:vLineFill 0.4s ease forwards;
+  }
+  .v-connector.flowing .v-line-fill { background:linear-gradient(180deg, var(--green), var(--blue)); }
+  @keyframes vLineFill { from{transform:translateX(-50%) scaleY(0);transform-origin:top} to{transform:translateX(-50%) scaleY(1);transform-origin:top} }
+  .v-arrow {
+    position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+    font-size:0.6rem; color:var(--muted); transition:color 0.3s;
+  }
+  .v-arrow.done { color:var(--green); }
+  .v-particle {
+    position:absolute; width:5px; height:5px; border-radius:50%;
+    background:var(--blue); left:50%; transform:translateX(-50%);
+    box-shadow:0 0 8px var(--blue);
+    animation:vParticleFlow 1.5s ease-in-out infinite;
+  }
+  .v-particle.vp2 { animation-delay:0.7s; width:4px; height:4px; opacity:0.7; }
+  @keyframes vParticleFlow {
+    0% { top:-4px; opacity:0; }
+    10% { opacity:1; }
+    90% { opacity:1; }
+    100% { top:calc(100% - 16px); opacity:0; }
+  }
 
   .pipe-node.small .pipe-icon { width:32px; height:32px; font-size:0.9rem; border-radius:10px; }
   .pipe-node.small .pipe-label { font-size:0.55rem; }
