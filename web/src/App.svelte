@@ -43,6 +43,7 @@
 
   let prompt = $state('');
   let model = $state('claude-opus-4-6');
+  let maxRetries = $state(0);
   let enabledTools = $state<Set<string>>(new Set());
   let workflowId = $state<string | null>(null);
   let wfState = $state<WorkflowState | null>(null);
@@ -78,7 +79,7 @@
   function scrollEventLog() { if(eventLogEl)eventLogEl.scrollTop=eventLogEl.scrollHeight; }
   async function submit() {
     if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;
-    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
+    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined,maxPipelineRetries:maxRetries||undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
   }
   async function fetchResult(id: string) {
     try { const r=await fetch(`/api/result/${id}`);if(!r.ok)throw new Error(r.statusText);result=await r.json();if(!wfState)wfState={phase:'complete',totalTasks:result!.tasks.length,completedTasks:result!.tasks.length,currentlyExecuting:[],events:[],tasks:result!.tasks}; } catch(e){error=(e as Error).message;} finally{loading=false;}
@@ -159,6 +160,15 @@
                 <option value="claude-opus-4-6">Opus 4.6</option>
                 <option value="claude-sonnet-4-6">Sonnet 4.6</option>
               </select>
+              <div class="retry-input">
+                <label for="retries">リトライ</label>
+                <select id="retries" bind:value={maxRetries} disabled={loading}>
+                  <option value={0}>なし</option>
+                  <option value={1}>1回</option>
+                  <option value={2}>2回</option>
+                  <option value={3}>3回</option>
+                </select>
+              </div>
             </div>
             <button class="run-btn" onclick={submit} disabled={!prompt.trim()||loading}>
               {#if loading}<span class="spinner"></span>{:else}
@@ -331,6 +341,12 @@
                   </div>
                   <div class="metric-label">統合レビュー</div>
                 </div>
+                {#if result.pipelineAttempt > 1}
+                  <div class="metric-card">
+                    <div class="metric-value">{result.pipelineAttempt}<span class="metric-unit">回</span></div>
+                    <div class="metric-label">試行回数</div>
+                  </div>
+                {/if}
               {:else if wfState.currentlyExecuting.length > 0}
                 <div class="metric-card">
                   <div class="metric-value">{wfState.currentlyExecuting.length}</div>
@@ -483,7 +499,11 @@
   .input-card textarea:focus { border-color:var(--blue); }
   .input-card textarea::placeholder { color:var(--muted); }
   .input-footer { display:flex; align-items:center; justify-content:space-between; margin-top:0.75rem; gap:0.75rem; }
+  .input-options { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
   .input-options select { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text2); padding:0.4rem 0.6rem; font-size:0.8rem; outline:none; }
+  .retry-input { display:flex; align-items:center; gap:0.35rem; }
+  .retry-input label { font-size:0.75rem; color:var(--muted); font-weight:500; white-space:nowrap; }
+  .retry-input select { width:auto; }
   .run-btn { display:inline-flex; align-items:center; gap:0.4rem; background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; border:none; border-radius:var(--radius-sm); padding:0.55rem 1.4rem; font-size:0.85rem; font-weight:600; cursor:pointer; transition:opacity 0.15s,transform 0.1s; }
   .run-btn:hover:not(:disabled) { opacity:0.9; transform:translateY(-1px); }
   .run-btn:active:not(:disabled) { transform:translateY(0); }

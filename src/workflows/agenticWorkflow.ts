@@ -159,6 +159,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
   const startTime = Date.now();
   const model = input.model ?? 'claude-opus-4-6';
   const maxParallelTasks = input.maxParallelTasks ?? 5;
+  const maxPipelineRetries = input.maxPipelineRetries ?? 0;
 
   let cancelled = false;
   const events: ActivityEvent[] = [];
@@ -186,99 +187,142 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     cancelled = true;
   });
 
-  // Phase 1: Plan
-  state.phase = 'planning';
-  emit('planner_start', 'プランニング開始');
-  log.info('Starting planning phase', { promptPreview: input.prompt.slice(0, 100) });
+  let pipelineAttempt = 0;
+  let currentPrompt = input.prompt;
+  let lastReviewNotes = '';
+  let lastIntegratedResponse = '';
+  let lastReviewPassed = false;
 
-  const { plan } = await plannerActivity({ prompt: input.prompt, model });
-  emit('planner_done', `プラン生成完了: ${plan.tasks.length}タスク — ${plan.planSummary.slice(0, 100)}`);
+  while (pipelineAttempt <= maxPipelineRetries) {
+    pipelineAttempt++;
 
-  if (cancelled) {
-    throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
-  }
+    if (pipelineAttempt > 1) {
+      // Reset state for retry
+      tasks.length = 0;
+      state.totalTasks = 0;
+      state.completedTasks = 0;
+      state.currentlyExecuting = [];
 
-  // Phase 2: Validate
-  state.phase = 'validating';
-  emit('validator_start', 'プラン検証開始');
-  log.info('Starting validation phase', { taskCount: plan.tasks.length });
+      emit('pipeline_retry', `パイプラインリトライ (${pipelineAttempt}/${maxPipelineRetries + 1}): ${lastReviewNotes.slice(0, 80)}`);
+      log.info('Pipeline retry', { attempt: pipelineAttempt, reason: lastReviewNotes.slice(0, 200) });
 
-  const { result: validation } = await validatorActivity({ plan, model });
+      // Augment prompt with previous failure feedback
+      currentPrompt = `${input.prompt}
 
-  if (!validation.valid) {
-    emit('validator_done', `検証失敗: ${validation.issues.join('; ')}`);
-    throw ApplicationFailure.create({
-      message: `Plan validation failed: ${validation.issues.join('; ')}`,
-      type: 'ValidationFatalError',
-      nonRetryable: true,
+[前回の試行が統合レビューで不合格になりました。以下のフィードバックを踏まえて改善してください]
+レビュー指摘: ${lastReviewNotes}`;
+    }
+
+    // Phase 1: Plan
+    state.phase = 'planning';
+    emit('planner_start', `プランニング開始${pipelineAttempt > 1 ? ` (試行 ${pipelineAttempt})` : ''}`);
+    log.info('Starting planning phase', { attempt: pipelineAttempt, promptPreview: currentPrompt.slice(0, 100) });
+
+    const { plan } = await plannerActivity({ prompt: currentPrompt, model });
+    emit('planner_done', `プラン生成完了: ${plan.tasks.length}タスク — ${plan.planSummary.slice(0, 100)}`);
+
+    if (cancelled) {
+      throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
+    }
+
+    // Phase 2: Validate
+    state.phase = 'validating';
+    emit('validator_start', 'プラン検証開始');
+    log.info('Starting validation phase', { taskCount: plan.tasks.length });
+
+    const { result: validation } = await validatorActivity({ plan, model });
+
+    if (!validation.valid) {
+      emit('validator_done', `検証失敗: ${validation.issues.join('; ')}`);
+      throw ApplicationFailure.create({
+        message: `Plan validation failed: ${validation.issues.join('; ')}`,
+        type: 'ValidationFatalError',
+        nonRetryable: true,
+      });
+    }
+
+    emit('validator_done', `検証通過${validation.issues.length > 0 ? ` (注意: ${validation.issues.join(', ')})` : ''}`);
+
+    const finalPlan = validation.revisedPlan ?? plan;
+    tasks.push(...finalPlan.tasks);
+    state.totalTasks = tasks.length;
+
+    log.info('Validation passed', { taskCount: tasks.length, issues: validation.issues });
+
+    if (cancelled) {
+      throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
+    }
+
+    // Phase 3: Execute DAG
+    state.phase = 'executing';
+    log.info('Starting execution phase');
+
+    const completedResults = new Map<string, string>();
+    const allToolEvidence: ToolEvidenceEntry[] = [];
+    await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools);
+
+    if (cancelled) {
+      throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
+    }
+
+    // Phase 4: Integrate
+    state.phase = 'integrating';
+    const reviewedTasks = tasks.filter((t) => t.reviewPassed);
+    emit('integrator_start', `統合開始: ${reviewedTasks.length}タスクの結果を統合`);
+    log.info('Starting integration phase', { reviewedCount: reviewedTasks.length, rejectedCount: tasks.length - reviewedTasks.length });
+
+    const { integratedResponse } = await integratorActivity({
+      originalPrompt: input.prompt,
+      reviewedTasks,
+      model,
+      allowedTools: input.allowedTools,
     });
+    emit('integrator_done', '統合完了');
+
+    // Phase 5: Review
+    state.phase = 'reviewing';
+    emit('integration_reviewer_start', '統合レビュー開始');
+    log.info('Starting integration review phase');
+
+    const integrationReview = await integrationReviewerActivity({
+      originalPrompt: input.prompt,
+      integratedResponse,
+      model,
+      toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
+    });
+    emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);
+
+    lastReviewPassed = integrationReview.passed;
+    lastReviewNotes = integrationReview.notes;
+    lastIntegratedResponse = integrationReview.revisedResponse ?? integratedResponse;
+
+    if (integrationReview.passed || pipelineAttempt > maxPipelineRetries) {
+      // Done — either passed or exhausted retries
+      state.phase = 'complete';
+      log.info('Workflow complete', { passed: integrationReview.passed, attempt: pipelineAttempt });
+
+      return {
+        finalResponse: lastIntegratedResponse,
+        integrationReviewPassed: integrationReview.passed,
+        integrationReviewNotes: integrationReview.notes,
+        tasks,
+        executionTimeMs: Date.now() - startTime,
+        pipelineAttempt,
+      };
+    }
+
+    // Review failed, loop will retry
+    log.info('Integration review failed, will retry pipeline', { attempt: pipelineAttempt, maxRetries: maxPipelineRetries });
   }
 
-  emit('validator_done', `検証通過${validation.issues.length > 0 ? ` (注意: ${validation.issues.join(', ')})` : ''}`);
-
-  const finalPlan = validation.revisedPlan ?? plan;
-  tasks.push(...finalPlan.tasks);
-  state.totalTasks = tasks.length;
-
-  log.info('Validation passed', {
-    taskCount: tasks.length,
-    issues: validation.issues,
-  });
-
-  if (cancelled) {
-    throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
-  }
-
-  // Phase 3: Execute DAG (parallel where dependencies allow)
-  state.phase = 'executing';
-  log.info('Starting execution phase');
-
-  const completedResults = new Map<string, string>();
-  const allToolEvidence: ToolEvidenceEntry[] = [];
-  await executeDag(tasks, completedResults, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools);
-
-  if (cancelled) {
-    throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
-  }
-
-  // Phase 4: Integrate reviewed task results
-  state.phase = 'integrating';
-  const reviewedTasks = tasks.filter((t) => t.reviewPassed);
-  emit('integrator_start', `統合開始: ${reviewedTasks.length}タスクの結果を統合`);
-  log.info('Starting integration phase', {
-    reviewedCount: reviewedTasks.length,
-    rejectedCount: tasks.length - reviewedTasks.length,
-  });
-
-  const { integratedResponse } = await integratorActivity({
-    originalPrompt: input.prompt,
-    reviewedTasks,
-    model,
-    allowedTools: input.allowedTools,
-  });
-  emit('integrator_done', '統合完了');
-
-  // Phase 5: Review the integration
-  state.phase = 'reviewing';
-  emit('integration_reviewer_start', '統合レビュー開始');
-  log.info('Starting integration review phase');
-
-  const integrationReview = await integrationReviewerActivity({
-    originalPrompt: input.prompt,
-    integratedResponse,
-    model,
-    toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
-  });
-  emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);
-
+  // Should not reach here, but safety return
   state.phase = 'complete';
-  log.info('Workflow complete', { passed: integrationReview.passed });
-
   return {
-    finalResponse: integrationReview.revisedResponse ?? integratedResponse,
-    integrationReviewPassed: integrationReview.passed,
-    integrationReviewNotes: integrationReview.notes,
+    finalResponse: lastIntegratedResponse,
+    integrationReviewPassed: lastReviewPassed,
+    integrationReviewNotes: lastReviewNotes,
     tasks,
     executionTimeMs: Date.now() - startTime,
+    pipelineAttempt,
   };
 }

@@ -402,6 +402,103 @@ describe('agenticWorkflow', () => {
     }
   }, 60_000);
 
+  it('retries from planning when integration review fails and maxPipelineRetries > 0', async () => {
+    let attempt = 0;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => {
+        attempt++;
+        return {
+          plan: {
+            planSummary: `Plan attempt ${attempt}`,
+            tasks: [makeTask({ id: randomUUID(), description: `Task attempt ${attempt}` })],
+          },
+        };
+      },
+      integrationReviewerActivity: async () => {
+        // Fail first attempt, pass second
+        if (attempt <= 1) {
+          return { passed: false, notes: 'Quality insufficient, retry needed' };
+        }
+        return { passed: true, notes: 'Good on retry' };
+      },
+    };
+
+    const result = await runWorkflow(activities, {
+      prompt: 'Test retry',
+      maxPipelineRetries: 2,
+    });
+
+    expect(attempt).toBe(2);
+    expect(result.integrationReviewPassed).toBe(true);
+    expect(result.pipelineAttempt).toBe(2);
+  }, 120_000);
+
+  it('returns failed result after exhausting maxPipelineRetries', async () => {
+    const activities: Activities = {
+      ...defaultMockActivities,
+      integrationReviewerActivity: async () => ({
+        passed: false,
+        notes: 'Always fails',
+      }),
+    };
+
+    const result = await runWorkflow(activities, {
+      prompt: 'Test exhaust retries',
+      maxPipelineRetries: 1,
+    });
+
+    // Should complete (not throw) but with failed review
+    expect(result.integrationReviewPassed).toBe(false);
+    expect(result.pipelineAttempt).toBe(2); // initial + 1 retry
+  }, 120_000);
+
+  it('does not retry when maxPipelineRetries is 0 (default)', async () => {
+    let plannerCalls = 0;
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => {
+        plannerCalls++;
+        return { plan: { planSummary: 'Plan', tasks: [makeTask({ id: randomUUID() })] } };
+      },
+      integrationReviewerActivity: async () => ({
+        passed: false,
+        notes: 'Failed',
+      }),
+    };
+
+    const result = await runWorkflow(activities, { prompt: 'No retry' });
+
+    expect(plannerCalls).toBe(1);
+    expect(result.integrationReviewPassed).toBe(false);
+    expect(result.pipelineAttempt).toBe(1);
+  }, 60_000);
+
+  it('passes previous failure notes to planner on retry', async () => {
+    let plannerPrompts: string[] = [];
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async (req) => {
+        plannerPrompts.push(req.prompt);
+        return {
+          plan: { planSummary: 'Plan', tasks: [makeTask({ id: randomUUID() })] },
+        };
+      },
+      integrationReviewerActivity: async () => {
+        if (plannerPrompts.length <= 1) return { passed: false, notes: 'Missing error handling' };
+        return { passed: true, notes: 'Fixed' };
+      },
+    };
+
+    await runWorkflow(activities, { prompt: 'Build API', maxPipelineRetries: 1 });
+
+    expect(plannerPrompts).toHaveLength(2);
+    // Second prompt should contain the failure feedback
+    expect(plannerPrompts[1]).toContain('Missing error handling');
+  }, 120_000);
+
   it('records activity events throughout the workflow', async () => {
     const taskQueue = `test-agentic-${randomUUID()}`;
 

@@ -22,11 +22,12 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
 
   api.post('/run', async (req, res) => {
     try {
-      const { prompt, model, maxParallelTasks, allowedTools } = req.body as {
+      const { prompt, model, maxParallelTasks, allowedTools, maxPipelineRetries } = req.body as {
         prompt?: string;
         model?: string;
         maxParallelTasks?: number;
         allowedTools?: string[];
+        maxPipelineRetries?: number;
       };
 
       if (!prompt || typeof prompt !== 'string') {
@@ -41,6 +42,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         model: model ?? process.env.CLAUDE_MODEL ?? 'claude-opus-4-6',
         maxParallelTasks: maxParallelTasks ?? 5,
         allowedTools,
+        maxPipelineRetries: maxPipelineRetries ?? 0,
       };
 
       await client.workflow.start(agenticWorkflow, {
