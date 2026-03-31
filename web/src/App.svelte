@@ -229,9 +229,10 @@
         </div>
 
         {#if workflowPrompt}
-          <div class="prompt-display">
+          <details class="prompt-display" open>
+            <summary class="prompt-summary">プロンプト</summary>
             <div class="prompt-display-text">{workflowPrompt}</div>
-          </div>
+          </details>
         {/if}
 
         {#if wfState}
@@ -555,10 +556,18 @@
   .wf-id { font-size:0.75rem; color:var(--muted); }
   .prompt-display {
     background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius);
-    padding:0.75rem 1rem; margin-bottom:1rem;
+    margin-bottom:1rem; overflow:hidden;
   }
+  .prompt-summary {
+    padding:0.6rem 1rem; font-size:0.75rem; font-weight:600; color:var(--muted);
+    text-transform:uppercase; letter-spacing:0.04em; cursor:pointer; list-style:none;
+  }
+  .prompt-summary::-webkit-details-marker { display:none; }
+  .prompt-summary::after { content:' ▼'; font-size:0.6rem; }
+  .prompt-display[open] .prompt-summary::after { content:' ▲'; }
   .prompt-display-text {
     font-size:0.9rem; color:var(--text); line-height:1.6; white-space:pre-wrap; word-break:break-word;
+    padding:0 1rem 0.75rem;
   }
   .phase-badge { font-size:0.65rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; padding:0.2rem 0.5rem; border-radius:99px; }
   .phase-badge.running { background:rgba(108,124,255,0.15); color:var(--blue); animation:pulse 1.5s infinite; }

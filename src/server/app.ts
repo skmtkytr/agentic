@@ -51,7 +51,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         taskQueue: 'agentic-pipeline',
         workflowId,
         args: [input],
-        memo: { prompt: prompt.slice(0, 200) },
+        memo: { prompt },
       });
 
       knownWorkflows.unshift({
@@ -90,7 +90,7 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
           workflowId: wf.workflowId,
           status: wf.status.name,
           startTime: wf.startTime.toISOString(),
-          prompt: (memoPrompt ?? promptMap.get(wf.workflowId))?.slice(0, 80),
+          prompt: memoPrompt ?? promptMap.get(wf.workflowId),
         });
         count++;
       }
