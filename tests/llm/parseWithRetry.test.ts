@@ -3,258 +3,115 @@ jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 jest.mock('@temporalio/activity', () => ({
-  log: {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
+  log: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { callStructured, callRawText, setProvider } from '../../src/llm/parseWithRetry';
+import type { LLMProvider } from '../../src/llm/provider';
 
-const mockQuery = query as jest.MockedFunction<typeof query>;
-
-function setupQueryMock(resultText: string) {
-  mockQuery.mockImplementation(async function* () {
-    yield { result: resultText } as never;
-  } as any);
+function mockProvider(text: string): LLMProvider {
+  return {
+    name: 'test',
+    call: async () => ({ text, toolUsage: [] }),
+  };
 }
 
-function setupEmptyQueryMock() {
-  mockQuery.mockImplementation(async function* () {
-    yield { type: 'system', subtype: 'init' } as never;
-  } as any);
-}
-
-import { callStructured, callRawText } from '../../src/llm/parseWithRetry';
-
-const TestSchema = z.object({
-  name: z.string(),
-  value: z.number(),
-});
+const TestSchema = z.object({ name: z.string(), value: z.number() });
 
 describe('callStructured', () => {
-  beforeEach(() => mockQuery.mockReset());
-
   it('parses valid JSON and validates against schema', async () => {
-    setupQueryMock('{"name":"test","value":42}');
-
-    const result = await callStructured(TestSchema, {
-      system: 'test system',
-      userContent: 'test prompt',
-    });
-
+    setProvider(mockProvider('{"name":"test","value":42}'));
+    const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result).toEqual({ name: 'test', value: 42 });
   });
 
   it('strips markdown code fences before parsing', async () => {
-    setupQueryMock('```json\n{"name":"fenced","value":1}\n```');
-
-    const result = await callStructured(TestSchema, {
-      system: 'test',
-      userContent: 'test',
-    });
-
+    setProvider(mockProvider('```json\n{"name":"fenced","value":1}\n```'));
+    const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result.name).toBe('fenced');
   });
 
   it('strips code fences without json label', async () => {
-    setupQueryMock('```\n{"name":"plain","value":2}\n```');
-
-    const result = await callStructured(TestSchema, {
-      system: 'test',
-      userContent: 'test',
-    });
-
+    setProvider(mockProvider('```\n{"name":"plain","value":2}\n```'));
+    const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result.name).toBe('plain');
   });
 
   it('throws on invalid JSON', async () => {
-    setupQueryMock('not json at all');
-
-    await expect(
-      callStructured(TestSchema, { system: 'test', userContent: 'test' }),
-    ).rejects.toThrow(/JSON parse failed/);
+    setProvider(mockProvider('not json'));
+    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/JSON parse failed/);
   });
 
   it('throws on schema validation failure', async () => {
-    setupQueryMock('{"name":"test","value":"not_a_number"}');
-
-    await expect(
-      callStructured(TestSchema, { system: 'test', userContent: 'test' }),
-    ).rejects.toThrow(/Schema validation failed/);
+    setProvider(mockProvider('{"name":"test","value":"not_a_number"}'));
+    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/Schema validation failed/);
   });
 
   it('throws when result is empty', async () => {
-    setupEmptyQueryMock();
-
-    await expect(
-      callStructured(TestSchema, { system: 'test', userContent: 'test' }),
-    ).rejects.toThrow(/Agent SDK returned empty result/);
+    setProvider(mockProvider(''));
+    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/LLM returned empty result/);
   });
 
-  it('passes model to query options', async () => {
-    setupQueryMock('{"name":"m","value":0}');
-
-    await callStructured(TestSchema, {
-      system: 'sys',
-      userContent: 'uc',
-      model: 'claude-sonnet-4-6',
+  it('appends JSON instruction to prompt', async () => {
+    let receivedPrompt = '';
+    setProvider({
+      name: 'spy',
+      call: async (opts) => { receivedPrompt = opts.prompt; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
     });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({
-          model: 'claude-sonnet-4-6',
-          tools: [],
-          permissionMode: 'dontAsk',
-        }),
-      }),
-    );
+    await callStructured(TestSchema, { system: 's', userContent: 'original prompt' });
+    expect(receivedPrompt).toContain('original prompt');
+    expect(receivedPrompt).toContain('ONLY valid JSON');
   });
 
-  it('does not include model when not specified', async () => {
-    setupQueryMock('{"name":"m","value":0}');
-
-    await callStructured(TestSchema, { system: 'sys', userContent: 'uc' });
-
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts).not.toHaveProperty('model');
-  });
-
-  it('uses tools: [] to disable all built-in tools', async () => {
-    setupQueryMock('{"name":"m","value":0}');
-
-    await callStructured(TestSchema, { system: 'sys', userContent: 'uc' });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({ tools: [], permissionMode: 'dontAsk' }),
-      }),
-    );
+  it('passes model to provider', async () => {
+    let receivedModel: string | undefined;
+    setProvider({
+      name: 'spy',
+      call: async (opts) => { receivedModel = opts.model; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
+    });
+    await callStructured(TestSchema, { system: 's', userContent: 'u', model: 'gpt-4o' });
+    expect(receivedModel).toBe('gpt-4o');
   });
 });
 
 describe('callRawText', () => {
-  beforeEach(() => mockQuery.mockReset());
-
-  it('returns raw text result with empty toolUsage', async () => {
-    setupQueryMock('Hello world');
-
-    const result = await callRawText({
-      system: 'test',
-      userContent: 'say hello',
-    });
-
-    expect(result.text).toBe('Hello world');
-    expect(result.toolUsage).toEqual([]);
+  it('returns text from provider', async () => {
+    setProvider(mockProvider('Hello'));
+    const result = await callRawText({ system: 's', userContent: 'u' });
+    expect(result.text).toBe('Hello');
   });
 
-  it('returns empty string when no result message', async () => {
-    setupEmptyQueryMock();
-
-    const result = await callRawText({ system: 'test', userContent: 'test' });
-
-    expect(result.text).toBe('');
-    expect(result.toolUsage).toEqual([]);
+  it('passes allowedTools to provider', async () => {
+    let receivedTools: string[] | undefined;
+    setProvider({
+      name: 'spy',
+      call: async (opts) => { receivedTools = opts.allowedTools; return { text: 'ok', toolUsage: [] }; },
+    });
+    await callRawText({ system: 's', userContent: 'u', allowedTools: ['WebFetch'] });
+    expect(receivedTools).toEqual(['WebFetch']);
   });
 
-  it('extracts tool usage from query messages', async () => {
-    mockQuery.mockImplementation(async function* () {
-      yield {
-        type: 'assistant',
-        message: {
-          content: [{
-            type: 'tool_use',
-            id: 'toolu_1',
-            name: 'WebFetch',
-            input: { url: 'https://example.com/api' },
-          }],
-        },
-      } as never;
-      yield {
-        type: 'user',
-        message: {
-          content: [{
-            type: 'tool_result',
-            tool_use_id: 'toolu_1',
-            content: '{"data": "value"}',
-          }],
-        },
-      } as never;
-      yield { result: 'Result text' } as never;
-    } as any);
-
-    const result = await callRawText({
-      system: 'test',
-      userContent: 'fetch data',
-      allowedTools: ['WebFetch'],
+  it('returns tool usage from provider', async () => {
+    setProvider({
+      name: 'spy',
+      call: async () => ({
+        text: 'done',
+        toolUsage: [{ tool: 'Bash', input: 'ls', output: 'file.txt', timestamp: 1 }],
+      }),
     });
-
-    expect(result.text).toBe('Result text');
+    const result = await callRawText({ system: 's', userContent: 'u' });
     expect(result.toolUsage).toHaveLength(1);
-    expect(result.toolUsage[0].tool).toBe('WebFetch');
-    expect(result.toolUsage[0].input).toBe('https://example.com/api');
-    expect(result.toolUsage[0].output).toBe('{"data": "value"}');
+    expect(result.toolUsage[0].tool).toBe('Bash');
   });
 
-  it('uses tools: [] when no allowedTools specified', async () => {
-    setupQueryMock('text');
-
-    await callRawText({ system: 's', userContent: 'u' });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({ tools: [], permissionMode: 'dontAsk' }),
-      }),
-    );
-  });
-
-  it('uses tools: [] when allowedTools is empty array', async () => {
-    setupQueryMock('text');
-
-    await callRawText({ system: 's', userContent: 'u', allowedTools: [] });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({ tools: [], permissionMode: 'dontAsk' }),
-      }),
-    );
-  });
-
-  it('passes allowedTools and permissionMode when tools specified', async () => {
-    setupQueryMock('text');
-
-    await callRawText({
-      system: 's',
-      userContent: 'u',
-      allowedTools: ['WebFetch', 'WebSearch'],
+  it('passes model to provider', async () => {
+    let receivedModel: string | undefined;
+    setProvider({
+      name: 'spy',
+      call: async (opts) => { receivedModel = opts.model; return { text: 'ok', toolUsage: [] }; },
     });
-
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts).toEqual(
-      expect.objectContaining({
-        allowedTools: ['WebFetch', 'WebSearch'],
-        permissionMode: 'dontAsk',
-      }),
-    );
-    expect(opts).not.toHaveProperty('tools');
-  });
-
-  it('passes model when specified', async () => {
-    setupQueryMock('text');
-
-    await callRawText({
-      system: 's',
-      userContent: 'u',
-      model: 'claude-opus-4-6',
-    });
-
-    expect(mockQuery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({ model: 'claude-opus-4-6' }),
-      }),
-    );
+    await callRawText({ system: 's', userContent: 'u', model: 'claude-haiku-4-5' });
+    expect(receivedModel).toBe('claude-haiku-4-5');
   });
 });
