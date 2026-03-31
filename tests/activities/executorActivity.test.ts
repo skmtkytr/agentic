@@ -151,6 +151,43 @@ describe('executorActivity', () => {
     expect(result.toolUsage).toEqual([]);
   });
 
+  it('writes result to file when workflowId is provided', async () => {
+    setupQueryMock('file-based result');
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'claude-opus-4-6',
+      workflowId: 'test-wf-file',
+    })) as ExecutorResponse;
+
+    expect(result.resultFilePath).toBeDefined();
+    expect(result.resultFilePath).toContain('test-wf-file');
+    expect(result.resultFilePath).toContain('result.md');
+
+    // Verify file exists and has correct content
+    const fs = require('fs');
+    expect(fs.existsSync(result.resultFilePath)).toBe(true);
+    expect(fs.readFileSync(result.resultFilePath, 'utf-8')).toBe('file-based result');
+
+    // Cleanup
+    fs.rmSync(result.resultFilePath!.split('/test-wf-file')[0] + '/test-wf-file', { recursive: true, force: true });
+  });
+
+  it('does not write file when workflowId is absent', async () => {
+    setupQueryMock('inline result');
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'claude-opus-4-6',
+    })) as ExecutorResponse;
+
+    expect(result.resultFilePath).toBeUndefined();
+  });
+
   it('returns empty string when no result', async () => {
     mockQuery.mockImplementation(async function* () {
       yield { type: 'system' } as never;

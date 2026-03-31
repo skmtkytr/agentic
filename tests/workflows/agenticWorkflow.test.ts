@@ -284,6 +284,36 @@ describe('agenticWorkflow', () => {
     expect(receivedTools).toEqual(['Read', 'Grep']);
   }, 60_000);
 
+  it('threads workflowId to executor and resultFilePath to reviewer', async () => {
+    let receivedWorkflowId: string | undefined;
+    let reviewerReceivedFilePath: string | undefined;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => {
+        receivedWorkflowId = req.workflowId;
+        return {
+          taskId: req.task.id,
+          result: 'file result',
+          resultFilePath: `/tmp/agentic/${req.workflowId}/${req.task.id}/result.md`,
+        };
+      },
+      reviewerActivity: async (req) => {
+        reviewerReceivedFilePath = req.resultFilePath;
+        return { taskId: req.task.id, passed: true, notes: 'ok' };
+      },
+    };
+
+    await runWorkflow(activities, {
+      prompt: 'Test file paths',
+      workflowId: 'test-wf-files',
+    });
+
+    expect(receivedWorkflowId).toBe('test-wf-files');
+    expect(reviewerReceivedFilePath).toContain('test-wf-files');
+    expect(reviewerReceivedFilePath).toContain('result.md');
+  }, 60_000);
+
   it('passes executor toolUsage to reviewer', async () => {
     let reviewerReceivedToolUsage: unknown;
 

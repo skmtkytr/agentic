@@ -115,6 +115,45 @@ describe('reviewerActivity', () => {
     expect(result.taskId).toBe('my-task-id');
   });
 
+  it('uses file path in prompt and enables Read tool when resultFilePath provided', async () => {
+    setupQueryMock(
+      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Verified via file' }),
+    );
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'inline result (ignored)',
+      resultFilePath: '/tmp/agentic/wf-1/task-1/result.md',
+      originalPrompt: 'test',
+      model: 'claude-opus-4-6',
+    });
+
+    const callArgs = mockQuery.mock.calls[0][0];
+    // Prompt should contain file path, not inline result
+    expect(callArgs.prompt).toContain('/tmp/agentic/wf-1/task-1/result.md');
+    expect(callArgs.prompt).toContain('Read ツール');
+    // Read tool should be allowed
+    expect(callArgs.options?.allowedTools).toContain('Read');
+  });
+
+  it('uses inline result when no resultFilePath', async () => {
+    setupQueryMock(
+      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'ok' }),
+    );
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'my inline result text',
+      originalPrompt: 'test',
+      model: 'claude-opus-4-6',
+    });
+
+    const callArgs = mockQuery.mock.calls[0][0];
+    expect(callArgs.prompt).toContain('my inline result text');
+    // No Read tool needed
+    expect(callArgs.options?.allowedTools).toBeUndefined();
+  });
+
   it('includes tool usage evidence in prompt when provided', async () => {
     setupQueryMock(
       JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Verified with tool evidence' }),

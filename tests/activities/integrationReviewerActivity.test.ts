@@ -77,6 +77,39 @@ describe('integrationReviewerActivity', () => {
     expect(result.revisedResponse).toBe('Better formatted response here');
   });
 
+  it('uses file path and Read tool when integratedResponseFilePath provided', async () => {
+    setupQueryMock(
+      JSON.stringify({ passed: true, notes: 'Reviewed from file' }),
+    );
+
+    await env.run(integrationReviewerActivity, {
+      originalPrompt: 'test',
+      integratedResponse: 'inline (ignored)',
+      integratedResponseFilePath: '/tmp/agentic/wf/_integrated/response.md',
+      model: 'claude-opus-4-6',
+    });
+
+    const callArgs = mockQuery.mock.calls[0][0];
+    expect(callArgs.prompt).toContain('/tmp/agentic/wf/_integrated/response.md');
+    expect(callArgs.prompt).toContain('Read ツール');
+    expect(callArgs.options?.allowedTools).toContain('Read');
+  });
+
+  it('uses inline response when no file path', async () => {
+    setupQueryMock(
+      JSON.stringify({ passed: true, notes: 'ok' }),
+    );
+
+    await env.run(integrationReviewerActivity, {
+      originalPrompt: 'test',
+      integratedResponse: 'My inline integrated response',
+      model: 'claude-opus-4-6',
+    });
+
+    const callArgs = mockQuery.mock.calls[0][0];
+    expect(callArgs.prompt).toContain('My inline integrated response');
+  });
+
   it('includes tool evidence summary in prompt when provided', async () => {
     setupQueryMock(
       JSON.stringify({ passed: true, notes: 'Data verified via tool evidence' }),
