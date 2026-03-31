@@ -10,8 +10,13 @@
   interface HistoryEntry { workflowId: string; status: string; startTime: string; prompt?: string; }
 
   const PHASES: Phase[] = ['planning', 'validating', 'executing', 'integrating', 'reviewing', 'complete'];
-  const PHASE_ICONS: Record<string, string> = {
-    planning: '1', validating: '2', executing: '3', integrating: '4', reviewing: '5', complete: '6',
+  const PHASE_META: Record<string, { icon: string; label: string; color: string }> = {
+    planning:    { icon: '🧠', label: 'Planner',    color: 'var(--purple)' },
+    validating:  { icon: '🔍', label: 'Validator',   color: 'var(--cyan)' },
+    executing:   { icon: '⚡', label: 'Executor',    color: 'var(--blue)' },
+    integrating: { icon: '🔗', label: 'Integrator',  color: 'var(--green)' },
+    reviewing:   { icon: '✅', label: 'Reviewer',    color: 'var(--teal)' },
+    complete:    { icon: '🏁', label: 'Complete',    color: 'var(--green)' },
   };
 
   const AVAILABLE_TOOLS = [
@@ -193,14 +198,29 @@
         </div>
 
         {#if wfState}
-          <!-- Pipeline -->
+          <!-- Agent Pipeline -->
           <div class="pipeline">
             {#each PHASES as phase, i}
               {@const idx = phaseIndex(phase)}
               {@const cur = phaseIndex(wfState.phase)}
-              {#if i > 0}<div class="pipe-line" class:done={idx<=cur}></div>{/if}
-              <div class="pipe-node" class:done={idx<cur} class:active={idx===cur} class:pending={idx>cur}>
-                <span class="pipe-num">{PHASE_ICONS[phase]}</span>
+              {@const meta = PHASE_META[phase]}
+              {#if i > 0}
+                <div class="pipe-connector" class:done={idx<=cur} class:flowing={idx===cur}>
+                  <div class="pipe-line-bg"></div>
+                  {#if idx<=cur}<div class="pipe-line-fill"></div>{/if}
+                  {#if idx===cur}
+                    <div class="particle p1"></div>
+                    <div class="particle p2"></div>
+                    <div class="particle p3"></div>
+                  {/if}
+                </div>
+              {/if}
+              <div class="pipe-node" class:done={idx<cur} class:active={idx===cur} class:pending={idx>cur} style="--node-color:{meta.color}">
+                <div class="pipe-icon">{meta.icon}</div>
+                <div class="pipe-label">{meta.label}</div>
+                {#if idx===cur && wfState.phase!=='complete'}
+                  <div class="pipe-glow"></div>
+                {/if}
               </div>
             {/each}
           </div>
@@ -414,13 +434,69 @@
   .phase-badge.done { background:rgba(94,232,160,0.15); color:var(--green); }
   .phase-badge.err { background:rgba(248,113,113,0.15); color:var(--red); }
 
-  /* Pipeline */
-  .pipeline { display:flex; align-items:center; margin-bottom:1.5rem; gap:0; }
-  .pipe-node { width:32px; height:32px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; color:var(--muted); background:var(--bg2); transition:all 0.3s; flex-shrink:0; }
-  .pipe-node.done { border-color:var(--green); color:var(--green); background:rgba(94,232,160,0.08); }
-  .pipe-node.active { border-color:var(--blue); color:white; background:var(--blue); animation:pulse 1.5s infinite; }
-  .pipe-line { flex:1; height:2px; background:var(--border); transition:background 0.3s; }
-  .pipe-line.done { background:var(--green); }
+  /* Agent Pipeline */
+  .pipeline { display:flex; align-items:center; margin-bottom:1.5rem; gap:0; padding:0.5rem 0; }
+
+  .pipe-node {
+    display:flex; flex-direction:column; align-items:center; gap:0.25rem;
+    flex-shrink:0; position:relative; z-index:1; min-width:56px;
+  }
+  .pipe-icon {
+    width:40px; height:40px; border-radius:12px; border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:1.1rem;
+    background:var(--bg2); transition:all 0.4s cubic-bezier(0.4,0,0.2,1);
+  }
+  .pipe-label {
+    font-size:0.6rem; font-weight:600; color:var(--muted); text-transform:uppercase;
+    letter-spacing:0.03em; transition:color 0.3s; white-space:nowrap;
+  }
+  .pipe-node.done .pipe-icon { border-color:var(--green); background:rgba(94,232,160,0.1); }
+  .pipe-node.done .pipe-label { color:var(--green); opacity:0.7; }
+  .pipe-node.active .pipe-icon {
+    border-color:var(--node-color); background:var(--bg2);
+    box-shadow:0 0 16px color-mix(in srgb, var(--node-color) 40%, transparent),
+               0 0 4px color-mix(in srgb, var(--node-color) 20%, transparent);
+    transform:scale(1.1);
+  }
+  .pipe-node.active .pipe-label { color:var(--node-color); font-weight:700; }
+  .pipe-node.pending .pipe-icon { opacity:0.35; }
+  .pipe-node.pending .pipe-label { opacity:0.3; }
+
+  .pipe-glow {
+    position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:40px; height:40px; border-radius:12px;
+    background:var(--node-color); opacity:0.15; filter:blur(12px);
+    animation:glowPulse 2s ease-in-out infinite;
+  }
+  @keyframes glowPulse { 0%,100%{opacity:0.1;transform:translateX(-50%) scale(1)} 50%{opacity:0.25;transform:translateX(-50%) scale(1.3)} }
+
+  /* Connector with particles */
+  .pipe-connector { flex:1; height:20px; position:relative; display:flex; align-items:center; min-width:20px; }
+  .pipe-line-bg { position:absolute; left:0; right:0; top:50%; height:2px; background:var(--border); transform:translateY(-50%); border-radius:1px; }
+  .pipe-line-fill {
+    position:absolute; left:0; right:0; top:50%; height:2px; transform:translateY(-50%);
+    background:var(--green); border-radius:1px; animation:lineFill 0.5s ease forwards;
+  }
+  @keyframes lineFill { from{transform:translateY(-50%) scaleX(0);transform-origin:left} to{transform:translateY(-50%) scaleX(1);transform-origin:left} }
+
+  .pipe-connector.flowing .pipe-line-fill {
+    background:linear-gradient(90deg, var(--green), var(--blue));
+  }
+
+  .particle {
+    position:absolute; width:6px; height:6px; border-radius:50%;
+    background:var(--blue); top:50%; transform:translateY(-50%);
+    box-shadow:0 0 8px var(--blue), 0 0 3px var(--blue);
+    animation:particleFlow 1.8s ease-in-out infinite;
+  }
+  .particle.p2 { animation-delay:0.6s; width:4px; height:4px; opacity:0.7; }
+  .particle.p3 { animation-delay:1.2s; width:5px; height:5px; opacity:0.8; }
+  @keyframes particleFlow {
+    0% { left:-4px; opacity:0; }
+    10% { opacity:1; }
+    90% { opacity:1; }
+    100% { left:calc(100% - 4px); opacity:0; }
+  }
 
   /* Metrics */
   .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:0.75rem; margin-bottom:1rem; }
