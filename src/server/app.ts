@@ -65,26 +65,30 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
   api.get('/workflows', async (_req, res) => {
     try {
       const client = await getClient();
+      const promptMap = new Map(knownWorkflows.map((w) => [w.workflowId, w.prompt]));
 
-      const results = await Promise.all(
-        knownWorkflows.slice(0, 50).map(async (entry) => {
-          let status = 'UNKNOWN';
-          try {
-            const desc = await client.workflow.getHandle(entry.workflowId).describe();
-            status = desc.status.name;
-          } catch {
-            status = 'NOT_FOUND';
-          }
-          return {
-            workflowId: entry.workflowId,
-            prompt: entry.prompt.slice(0, 80),
-            status,
-            startTime: entry.startTime,
-          };
-        }),
-      );
+      const workflows: Array<{
+        workflowId: string;
+        status: string;
+        startTime: string;
+        prompt?: string;
+      }> = [];
 
-      res.json(results);
+      let count = 0;
+      for await (const wf of client.workflow.list({
+        query: "WorkflowType = 'agenticWorkflow'",
+      })) {
+        if (count >= 50) break;
+        workflows.push({
+          workflowId: wf.workflowId,
+          status: wf.status.name,
+          startTime: wf.startTime.toISOString(),
+          prompt: promptMap.get(wf.workflowId)?.slice(0, 80),
+        });
+        count++;
+      }
+
+      res.json(workflows);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

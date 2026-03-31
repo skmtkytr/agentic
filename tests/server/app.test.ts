@@ -36,11 +36,16 @@ function makeMockHandle(overrides: {
 function makeMockClient(overrides: {
   start?: (...args: any[]) => Promise<any>;
   getHandle?: (id: string) => any;
+  list?: (opts?: any) => AsyncIterable<any>;
 } = {}) {
+  const defaultList = async function* () {
+    // empty by default
+  };
   return {
     workflow: {
       start: overrides.start ?? (async () => undefined),
       getHandle: overrides.getHandle ?? (() => makeMockHandle()),
+      list: overrides.list ?? defaultList,
     },
   } as unknown as Client;
 }
@@ -127,7 +132,7 @@ describe('Server API', () => {
   });
 
   describe('GET /api/workflows', () => {
-    it('returns empty array when no workflows exist', async () => {
+    it('returns empty array when no workflows in Temporal', async () => {
       const mockClient = makeMockClient();
       const { app } = createApp(async () => mockClient);
 
@@ -137,84 +142,93 @@ describe('Server API', () => {
       expect(res.body).toEqual([]);
     });
 
-    it('returns workflows with enriched status', async () => {
+    it('returns workflows from Temporal list API', async () => {
       const mockClient = makeMockClient({
-        getHandle: () => makeMockHandle({
-          describe: async () => ({ status: { name: 'COMPLETED' } }),
-        }),
+        list: () => (async function* () {
+          yield {
+            workflowId: 'agentic-test-1',
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+          };
+        })(),
       });
-      const { app, knownWorkflows } = createApp(async () => mockClient);
-
-      // Manually add a workflow entry
-      knownWorkflows.push({
-        workflowId: 'agentic-test-1',
-        prompt: 'Hello world',
-        model: 'claude-opus-4-6',
-        startTime: '2026-03-31T10:00:00Z',
-      });
+      const { app } = createApp(async () => mockClient);
 
       const res = await request(app).get('/api/workflows');
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0]).toEqual({
-        workflowId: 'agentic-test-1',
-        prompt: 'Hello world',
-        status: 'COMPLETED',
-        startTime: '2026-03-31T10:00:00Z',
-      });
+      expect(res.body[0].workflowId).toBe('agentic-test-1');
+      expect(res.body[0].status).toBe('COMPLETED');
     });
 
-    it('returns NOT_FOUND status for missing workflows', async () => {
+    it('includes prompt from knownWorkflows when available', async () => {
       const mockClient = makeMockClient({
-        getHandle: () => makeMockHandle({
-          describe: async () => { throw new Error('not found'); },
-        }),
+        list: () => (async function* () {
+          yield {
+            workflowId: 'agentic-known',
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+          };
+        })(),
       });
       const { app, knownWorkflows } = createApp(async () => mockClient);
 
       knownWorkflows.push({
-        workflowId: 'agentic-deleted',
-        prompt: 'Old prompt',
-        model: 'claude-opus-4-6',
-        startTime: '2026-01-01T00:00:00Z',
-      });
-
-      const res = await request(app).get('/api/workflows');
-
-      expect(res.body[0].status).toBe('NOT_FOUND');
-    });
-
-    it('truncates prompt to 80 characters', async () => {
-      const mockClient = makeMockClient();
-      const { app, knownWorkflows } = createApp(async () => mockClient);
-
-      knownWorkflows.push({
-        workflowId: 'agentic-long',
-        prompt: 'A'.repeat(200),
+        workflowId: 'agentic-known',
+        prompt: 'Hello world',
         model: 'claude-opus-4-6',
         startTime: '2026-03-31T10:00:00Z',
       });
 
       const res = await request(app).get('/api/workflows');
-      expect(res.body[0].prompt).toHaveLength(80);
+      expect(res.body[0].prompt).toBe('Hello world');
+    });
+
+    it('returns undefined prompt for workflows not in knownWorkflows', async () => {
+      const mockClient = makeMockClient({
+        list: () => (async function* () {
+          yield {
+            workflowId: 'agentic-unknown',
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+          };
+        })(),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflows');
+      expect(res.body[0].prompt).toBeUndefined();
     });
 
     it('limits to 50 workflows', async () => {
-      const mockClient = makeMockClient();
-      const { app, knownWorkflows } = createApp(async () => mockClient);
-
-      for (let i = 0; i < 60; i++) {
-        knownWorkflows.push({
-          workflowId: `agentic-${i}`,
-          prompt: `Prompt ${i}`,
-          model: 'claude-opus-4-6',
-          startTime: new Date().toISOString(),
-        });
-      }
+      const mockClient = makeMockClient({
+        list: () => (async function* () {
+          for (let i = 0; i < 60; i++) {
+            yield {
+              workflowId: `agentic-${i}`,
+              status: { name: 'COMPLETED' },
+              startTime: new Date(),
+            };
+          }
+        })(),
+      });
+      const { app } = createApp(async () => mockClient);
 
       const res = await request(app).get('/api/workflows');
       expect(res.body).toHaveLength(50);
+    });
+
+    it('returns 500 when Temporal list fails', async () => {
+      const mockClient = makeMockClient({
+        list: () => (async function* () {
+          throw new Error('Temporal unavailable');
+        })(),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflows');
+      expect(res.status).toBe(500);
     });
   });
 
