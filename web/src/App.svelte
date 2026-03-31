@@ -198,31 +198,85 @@
         </div>
 
         {#if wfState}
-          <!-- Agent Pipeline -->
-          <div class="pipeline">
-            {#each PHASES as phase, i}
-              {@const idx = phaseIndex(phase)}
-              {@const cur = phaseIndex(wfState.phase)}
-              {@const meta = PHASE_META[phase]}
-              {#if i > 0}
-                <div class="pipe-connector" class:done={idx<=cur} class:flowing={idx===cur}>
-                  <div class="pipe-line-bg"></div>
-                  {#if idx<=cur}<div class="pipe-line-fill"></div>{/if}
-                  {#if idx===cur}
-                    <div class="particle p1"></div>
-                    <div class="particle p2"></div>
-                    <div class="particle p3"></div>
-                  {/if}
-                </div>
-              {/if}
-              <div class="pipe-node" class:done={idx<cur} class:active={idx===cur} class:pending={idx>cur} style="--node-color:{meta.color}">
-                <div class="pipe-icon">{meta.icon}</div>
-                <div class="pipe-label">{meta.label}</div>
-                {#if idx===cur && wfState.phase!=='complete'}
-                  <div class="pipe-glow"></div>
-                {/if}
+          <!-- Agent Pipeline (DAG) -->
+          {@const cur = phaseIndex(wfState.phase)}
+          {@const taskCount = Math.max(wfState.tasks.length, wfState.totalTasks, 1)}
+          <div class="dag">
+            <!-- Row 1: Planner → Validator -->
+            <div class="dag-row">
+              <div class="pipe-node" class:done={cur>0} class:active={cur===0} style="--node-color:{PHASE_META.planning.color}">
+                <div class="pipe-icon">{PHASE_META.planning.icon}</div>
+                <div class="pipe-label">{PHASE_META.planning.label}</div>
+                {#if cur===0}<div class="pipe-glow"></div>{/if}
               </div>
-            {/each}
+              <div class="pipe-connector" class:done={cur>=1} class:flowing={cur===0}>
+                <div class="pipe-line-bg"></div>
+                {#if cur>=1}<div class="pipe-line-fill"></div>{/if}
+                {#if cur===0}<div class="particle p1"></div><div class="particle p2"></div><div class="particle p3"></div>{/if}
+              </div>
+              <div class="pipe-node" class:done={cur>1} class:active={cur===1} style="--node-color:{PHASE_META.validating.color}">
+                <div class="pipe-icon">{PHASE_META.validating.icon}</div>
+                <div class="pipe-label">{PHASE_META.validating.label}</div>
+                {#if cur===1}<div class="pipe-glow"></div>{/if}
+              </div>
+            </div>
+
+            <!-- Fan-out visual handled by dag-parallel box -->
+
+            <!-- Row 2: Executor×N → Reviewer×N (parallel lanes) -->
+            <div class="dag-parallel">
+              {#each wfState.tasks.length > 0 ? wfState.tasks : Array(taskCount).fill(null).map((_, i) => ({ id: `pending-${i}`, description: `Task ${i+1}`, status: 'pending' as const, dependsOn: [], reviewPassed: false })) as task, ti}
+                {@const isExecuting = task.status === 'executing'}
+                {@const isExecuted = task.status === 'executed' || task.status === 'reviewed' || task.status === 'rejected'}
+                {@const isReviewing = task.status === 'executed'}
+                {@const isReviewed = task.status === 'reviewed' || task.status === 'rejected'}
+                <div class="dag-lane">
+                  <div class="pipe-node small" class:done={isExecuted} class:active={isExecuting} style="--node-color:var(--blue)">
+                    <div class="pipe-icon">⚡</div>
+                    <div class="pipe-label">Exec {ti+1}</div>
+                    {#if isExecuting}<div class="pipe-glow"></div>{/if}
+                  </div>
+                  <div class="pipe-connector short" class:done={isExecuted||isReviewed} class:flowing={isExecuting}>
+                    <div class="pipe-line-bg"></div>
+                    {#if isExecuted||isReviewed}<div class="pipe-line-fill"></div>{/if}
+                    {#if isExecuting}<div class="particle p1"></div><div class="particle p2"></div>{/if}
+                  </div>
+                  <div class="pipe-node small" class:done={isReviewed} class:active={isReviewing} class:rejected={task.status==='rejected'} style="--node-color:var(--amber)">
+                    <div class="pipe-icon">{task.status==='rejected'?'✗':task.status==='reviewed'?'✓':'📋'}</div>
+                    <div class="pipe-label">Review</div>
+                    {#if isReviewing}<div class="pipe-glow"></div>{/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+
+            <!-- Fan-in connector + Integrator → Integration Reviewer -->
+            <div class="dag-row">
+              <div class="pipe-node" class:done={cur>3} class:active={cur===3} style="--node-color:{PHASE_META.integrating.color}">
+                <div class="pipe-icon">{PHASE_META.integrating.icon}</div>
+                <div class="pipe-label">{PHASE_META.integrating.label}</div>
+                {#if cur===3}<div class="pipe-glow"></div>{/if}
+              </div>
+              <div class="pipe-connector" class:done={cur>=4} class:flowing={cur===3}>
+                <div class="pipe-line-bg"></div>
+                {#if cur>=4}<div class="pipe-line-fill"></div>{/if}
+                {#if cur===3}<div class="particle p1"></div><div class="particle p2"></div><div class="particle p3"></div>{/if}
+              </div>
+              <div class="pipe-node" class:done={cur>4} class:active={cur===4} style="--node-color:{PHASE_META.reviewing.color}">
+                <div class="pipe-icon">{PHASE_META.reviewing.icon}</div>
+                <div class="pipe-label">Int. Review</div>
+                {#if cur===4}<div class="pipe-glow"></div>{/if}
+              </div>
+              <div class="pipe-connector" class:done={cur>=5} class:flowing={cur===4}>
+                <div class="pipe-line-bg"></div>
+                {#if cur>=5}<div class="pipe-line-fill"></div>{/if}
+                {#if cur===4}<div class="particle p1"></div><div class="particle p2"></div>{/if}
+              </div>
+              <div class="pipe-node" class:done={cur>=5} style="--node-color:{PHASE_META.complete.color}">
+                <div class="pipe-icon">{PHASE_META.complete.icon}</div>
+                <div class="pipe-label">{PHASE_META.complete.label}</div>
+              </div>
+            </div>
           </div>
 
           <!-- Metrics cards -->
@@ -434,8 +488,22 @@
   .phase-badge.done { background:rgba(94,232,160,0.15); color:var(--green); }
   .phase-badge.err { background:rgba(248,113,113,0.15); color:var(--red); }
 
-  /* Agent Pipeline */
-  .pipeline { display:flex; align-items:center; margin-bottom:1.5rem; gap:0; padding:0.5rem 0; }
+  /* Agent DAG Pipeline */
+  .dag { display:flex; flex-direction:column; align-items:center; gap:0.75rem; margin-bottom:1.5rem; padding:1rem 0; }
+  .dag-row { display:flex; align-items:center; gap:0; width:100%; justify-content:center; }
+  .dag-parallel {
+    display:flex; flex-direction:column; gap:0.4rem; width:100%;
+    padding:0.5rem 1rem; background:var(--bg3); border:1px solid var(--border);
+    border-radius:var(--radius); position:relative;
+  }
+  .dag-parallel::before { content:'並列実行'; position:absolute; top:-0.5rem; left:1rem; font-size:0.55rem; color:var(--muted); background:var(--bg3); padding:0 0.4rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+  .dag-lane { display:flex; align-items:center; gap:0; }
+  .dag-fanout { display:none; } /* SVG fan-out hidden for now, using box instead */
+
+  .pipe-node.small .pipe-icon { width:32px; height:32px; font-size:0.9rem; border-radius:10px; }
+  .pipe-node.small .pipe-label { font-size:0.55rem; }
+  .pipe-node.rejected .pipe-icon { border-color:var(--red); background:rgba(248,113,113,0.1); }
+  .pipe-connector.short { min-width:16px; flex:0 0 40px; }
 
   .pipe-node {
     display:flex; flex-direction:column; align-items:center; gap:0.25rem;
