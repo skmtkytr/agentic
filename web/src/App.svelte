@@ -99,26 +99,69 @@
   function statusBadge(s: string) { return s==='RUNNING'?{l:'実行中',c:'var(--blue)'}:s==='COMPLETED'?{l:'完了',c:'var(--green)'}:s==='FAILED'?{l:'失敗',c:'var(--red)'}:{l:s,c:'var(--muted)'}; }
   let copied = $state(false);
 
-  function getResultMarkdown(): string {
+  function getFullReportMarkdown(): string {
     if (!result) return '';
-    return result.finalResponse;
+    const wfId = workflowId?.replace('agentic-', '').slice(0, 8) ?? '';
+    const lines: string[] = [];
+
+    lines.push(`# Agentic Workflow Report`);
+    if (workflowPrompt) lines.push(`\n## プロンプト\n\n${workflowPrompt}`);
+    lines.push(`\n---\n`);
+
+    // Each task result
+    lines.push(`## タスク別成果物\n`);
+    for (let i = 0; i < result.tasks.length; i++) {
+      const t = result.tasks[i];
+      const status = t.reviewPassed ? '✅' : '❌';
+      lines.push(`### ${status} タスク ${i + 1}: ${t.description}\n`);
+      if (t.result) lines.push(t.result);
+      if (t.reviewNotes) lines.push(`\n> **レビュー:** ${t.reviewNotes}`);
+      lines.push(`\n---\n`);
+    }
+
+    // Integrated response
+    lines.push(`## 統合結果\n`);
+    lines.push(result.finalResponse);
+
+    // Review notes
+    if (result.integrationReviewNotes) {
+      lines.push(`\n---\n\n## 統合レビュー\n`);
+      lines.push(`**結果:** ${result.integrationReviewPassed ? 'PASS ✅' : 'FAIL ❌'}\n`);
+      lines.push(result.integrationReviewNotes);
+    }
+
+    // Stats
+    lines.push(`\n---\n\n## メタデータ\n`);
+    lines.push(`- 実行時間: ${(result.executionTimeMs / 1000).toFixed(1)}s`);
+    lines.push(`- タスク: ${result.tasks.filter(t => t.reviewPassed).length}/${result.tasks.length} passed`);
+    if (result.pipelineAttempt > 1) lines.push(`- 試行回数: ${result.pipelineAttempt}`);
+
+    return lines.join('\n');
   }
 
   async function copyResult() {
-    await navigator.clipboard.writeText(getResultMarkdown());
+    await navigator.clipboard.writeText(getFullReportMarkdown());
     copied = true;
     setTimeout(() => copied = false, 2000);
   }
 
-  function downloadResult() {
-    const text = getResultMarkdown();
-    const blob = new Blob([text], { type: 'text/markdown' });
+  function downloadBlobAs(content: string, filename: string) {
+    const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${workflowId?.replace('agentic-', '').slice(0, 8) ?? 'result'}.md`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadFullReport() {
+    downloadBlobAs(getFullReportMarkdown(), `${workflowId?.replace('agentic-', '').slice(0, 8) ?? 'report'}-full.md`);
+  }
+
+  function downloadIntegrated() {
+    if (!result) return;
+    downloadBlobAs(result.finalResponse, `${workflowId?.replace('agentic-', '').slice(0, 8) ?? 'result'}.md`);
   }
 
   function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;loading=false;expandedTasks=new Set();setHash(null); }
@@ -468,11 +511,14 @@
             <div class="card-header">
               <span class="card-title">結果</span>
               <div class="result-actions">
-                <button class="action-btn" onclick={copyResult} title="Markdownをコピー">
-                  {copied ? '✓ コピー済' : '📋 コピー'}
+                <button class="action-btn" onclick={copyResult} title="全成果物をクリップボードにコピー">
+                  {copied ? '✓ コピー済' : '📋 全体コピー'}
                 </button>
-                <button class="action-btn" onclick={downloadResult} title=".mdファイルをダウンロード">
-                  📥 DL
+                <button class="action-btn" onclick={downloadFullReport} title="全タスク成果物+統合結果をダウンロード">
+                  📥 全体DL
+                </button>
+                <button class="action-btn" onclick={downloadIntegrated} title="統合結果のみダウンロード">
+                  📄 統合のみ
                 </button>
               </div>
             </div>
