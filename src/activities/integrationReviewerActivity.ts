@@ -36,29 +36,44 @@ export async function integrationReviewerActivity(
   const result = await callStructured(IntegrationReviewerResultSchema, {
     model: req.model,
     allowedTools: hasFilePath ? ['Read'] : undefined,
-    system: `あなたは最終品質保証エージェントです。統合された回答がユーザーの元のリクエストに対して適切かを最終レビューしてください。
+    system: `あなたは最終品質保証エージェントです。統合された回答をユーザーの元のリクエストに対して多角的に評価してください。
 
-チェック項目:
-1. 回答が元のリクエストに対して完全かつ正確に対応しているか
-2. 回答が一貫性があり、構造化されていて、完全か
-3. 事実誤認、矛盾、重大な欠落がないか
-4. 納品可能な品質か
-5. 回答が日本語で記述されているか
+評価カテゴリ（各1〜5点）:
+- completeness: リクエストへの網羅性（全ての要求に対応しているか）
+- accuracy: 正確性（事実誤認・矛盾がないか、ソースが明記されているか）
+- structure: 構造・読みやすさ（論理的な流れ、Markdown構造、見やすさ）
+- actionability: 実用性（ユーザーが次のアクションを取れる具体性があるか）
+- overall: 総合評価
 
-回答が十分な場合: { "passed": true, "notes": "日本語で品質の概要" }
-軽微な改善が可能な場合: { "passed": true, "notes": "日本語で改善内容", "revisedResponse": "改善後の回答（日本語）" }
-深刻な品質問題がある場合: { "passed": false, "notes": "日本語で問題の説明" }
+判定基準:
+- overall 4以上 → passed: true
+- overall 3以下 → passed: false
+
+出力内容:
+- notes: 全体的な品質評価の要約（日本語）
+- strengths: 良かった点を箇条書き（日本語）
+- improvements: 改善すべき点を箇条書き（日本語）
+- revisedResponse: 深刻な問題があり修正可能な場合のみ含める（日本語）
 
 重要な制約:
-- notes の値は**必ず日本語**で書いてください。英語で書かないでください。
-- revisedResponse を含める場合も**必ず日本語**で書いてください。
-- キー名（passed, notes, revisedResponse）は英語のままにしてください。
+- notes, strengths, improvements の値は**必ず日本語**で書いてください
+- revisedResponse を含める場合も**必ず日本語**で書いてください
+- キー名は英語のままにしてください
 
 以下のスキーマに**厳密に**従ってJSONを出力してください:
 {
   "passed": boolean,
-  "notes": "string（日本語で記述）",
-  "revisedResponse": "string（日本語で記述、optional）"
+  "notes": "string（日本語）",
+  "score": {
+    "completeness": number（1-5）,
+    "accuracy": number（1-5）,
+    "structure": number（1-5）,
+    "actionability": number（1-5）,
+    "overall": number（1-5）
+  },
+  "strengths": ["string（日本語）"],
+  "improvements": ["string（日本語）"],
+  "revisedResponse": "string（日本語、optional）"
 }`,
     userContent: `元のリクエスト: ${req.originalPrompt}
 

@@ -45,6 +45,9 @@ const defaultMockActivities: Activities = {
   integrationReviewerActivity: async () => ({
     passed: true,
     notes: 'Final review passed',
+    score: { completeness: 5, accuracy: 5, structure: 5, actionability: 4, overall: 5 },
+    strengths: ['Good quality'],
+    improvements: [],
   }),
 };
 
@@ -104,6 +107,9 @@ describe('agenticWorkflow', () => {
       integrationReviewerActivity: async () => ({
         passed: true,
         notes: 'Minor improvements made',
+        score: { completeness: 4, accuracy: 4, structure: 5, actionability: 4, overall: 4 },
+        strengths: ['Improved'],
+        improvements: [],
         revisedResponse: 'Revised and improved response',
       }),
     };
@@ -352,7 +358,7 @@ describe('agenticWorkflow', () => {
       }),
       integrationReviewerActivity: async (req) => {
         integrationReviewerReceivedEvidence = req.toolEvidence;
-        return { passed: true, notes: 'ok' };
+        return { passed: true, notes: 'ok', score: { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 }, strengths: [], improvements: [] };
       },
     };
 
@@ -449,9 +455,9 @@ describe('agenticWorkflow', () => {
       integrationReviewerActivity: async () => {
         // Fail first attempt, pass second
         if (attempt <= 1) {
-          return { passed: false, notes: 'Quality insufficient, retry needed' };
+          return { passed: false, notes: 'Quality insufficient, retry needed', score: { completeness: 2, accuracy: 2, structure: 3, actionability: 2, overall: 2 }, strengths: [], improvements: ['Improve quality'] };
         }
-        return { passed: true, notes: 'Good on retry' };
+        return { passed: true, notes: 'Good on retry', score: { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 }, strengths: ['Improved'], improvements: [] };
       },
     };
 
@@ -471,6 +477,9 @@ describe('agenticWorkflow', () => {
       integrationReviewerActivity: async () => ({
         passed: false,
         notes: 'Always fails',
+        score: { completeness: 1, accuracy: 1, structure: 1, actionability: 1, overall: 1 },
+        strengths: [],
+        improvements: ['Everything'],
       }),
     };
 
@@ -495,6 +504,9 @@ describe('agenticWorkflow', () => {
       integrationReviewerActivity: async () => ({
         passed: false,
         notes: 'Failed',
+        score: { completeness: 1, accuracy: 1, structure: 1, actionability: 1, overall: 1 },
+        strengths: [],
+        improvements: ['Everything'],
       }),
     };
 
@@ -585,8 +597,8 @@ describe('agenticWorkflow', () => {
         };
       },
       integrationReviewerActivity: async () => {
-        if (plannerPrompts.length <= 1) return { passed: false, notes: 'Missing error handling' };
-        return { passed: true, notes: 'Fixed' };
+        if (plannerPrompts.length <= 1) return { passed: false, notes: 'Missing error handling', score: { completeness: 2, accuracy: 3, structure: 3, actionability: 2, overall: 2 }, strengths: [], improvements: ['Add error handling'] };
+        return { passed: true, notes: 'Fixed', score: { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 }, strengths: ['Fixed'], improvements: [] };
       },
     };
 

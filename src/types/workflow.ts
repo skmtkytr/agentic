@@ -23,6 +23,15 @@ export interface WorkflowOutput {
   finalResponse: string;
   integrationReviewPassed: boolean;
   integrationReviewNotes: string;
+  integrationReviewScore?: {
+    completeness: number;
+    accuracy: number;
+    structure: number;
+    actionability: number;
+    overall: number;
+  };
+  integrationReviewStrengths?: string[];
+  integrationReviewImprovements?: string[];
   tasks: Task[];
   executionTimeMs: number;
   pipelineAttempt: number;

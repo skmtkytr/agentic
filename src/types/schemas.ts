@@ -33,5 +33,14 @@ export const ReviewerResultSchema = z.object({
 export const IntegrationReviewerResultSchema = z.object({
   passed: z.boolean(),
   notes: z.string(),
+  score: z.object({
+    completeness: z.number().min(1).max(5),
+    accuracy: z.number().min(1).max(5),
+    structure: z.number().min(1).max(5),
+    actionability: z.number().min(1).max(5),
+    overall: z.number().min(1).max(5),
+  }),
+  strengths: z.array(z.string()).default([]),
+  improvements: z.array(z.string()).default([]),
   revisedResponse: z.string().optional(),
 });

@@ -87,8 +87,19 @@ export interface IntegrationReviewerRequest {
   toolEvidence?: ToolEvidenceEntry[];
 }
 
+export interface ReviewScore {
+  completeness: number;
+  accuracy: number;
+  structure: number;
+  actionability: number;
+  overall: number;
+}
+
 export interface IntegrationReviewerResponse {
   passed: boolean;
   notes: string;
+  score: ReviewScore;
+  strengths: string[];
+  improvements: string[];
   revisedResponse?: string;
 }

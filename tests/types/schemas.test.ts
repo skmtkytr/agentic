@@ -147,30 +147,57 @@ describe('ReviewerResultSchema', () => {
 });
 
 describe('IntegrationReviewerResultSchema', () => {
-  it('parses passed review', () => {
+  const validScore = { completeness: 4, accuracy: 5, structure: 4, actionability: 3, overall: 4 };
+
+  it('parses passed review with score', () => {
     const result = IntegrationReviewerResultSchema.parse({
       passed: true,
       notes: 'All good',
+      score: validScore,
     });
     expect(result.passed).toBe(true);
+    expect(result.score.overall).toBe(4);
+    expect(result.strengths).toEqual([]);
+    expect(result.improvements).toEqual([]);
+  });
+
+  it('parses with strengths and improvements', () => {
+    const result = IntegrationReviewerResultSchema.parse({
+      passed: true,
+      notes: 'Good',
+      score: validScore,
+      strengths: ['Well structured', 'Accurate data'],
+      improvements: ['Add more sources'],
+    });
+    expect(result.strengths).toHaveLength(2);
+    expect(result.improvements).toHaveLength(1);
   });
 
   it('parses with revisedResponse', () => {
     const result = IntegrationReviewerResultSchema.parse({
       passed: true,
       notes: 'Improved',
+      score: validScore,
       revisedResponse: 'better response',
     });
     expect(result.revisedResponse).toBe('better response');
   });
 
-  it('rejects missing passed', () => {
-    const result = IntegrationReviewerResultSchema.safeParse({ notes: 'no passed field' });
+  it('rejects missing score', () => {
+    const result = IntegrationReviewerResultSchema.safeParse({ passed: true, notes: 'no score' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects score out of range', () => {
+    const result = IntegrationReviewerResultSchema.safeParse({
+      passed: true, notes: 'bad score',
+      score: { completeness: 6, accuracy: 5, structure: 4, actionability: 3, overall: 4 },
+    });
     expect(result.success).toBe(false);
   });
 
   it('rejects missing notes', () => {
-    const result = IntegrationReviewerResultSchema.safeParse({ passed: true });
+    const result = IntegrationReviewerResultSchema.safeParse({ passed: true, score: validScore });
     expect(result.success).toBe(false);
   });
 });

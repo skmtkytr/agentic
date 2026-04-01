@@ -14,7 +14,8 @@
   interface ActivityEvent { kind: string; timestamp: number; taskId?: string; taskDescription?: string; summary: string; }
   interface TaskState { id: string; description: string; dependsOn: string[]; status: 'pending' | 'executing' | 'executed' | 'reviewed' | 'rejected'; result?: string; reviewNotes?: string; reviewPassed: boolean; }
   interface WorkflowState { phase: Phase; totalTasks: number; completedTasks: number; currentlyExecuting: string[]; events: ActivityEvent[]; tasks: TaskState[]; }
-  interface WorkflowResult { finalResponse: string; integrationReviewPassed: boolean; integrationReviewNotes: string; tasks: TaskState[]; executionTimeMs: number; }
+  interface ReviewScore { completeness: number; accuracy: number; structure: number; actionability: number; overall: number; }
+  interface WorkflowResult { finalResponse: string; integrationReviewPassed: boolean; integrationReviewNotes: string; score?: ReviewScore; strengths?: string[]; improvements?: string[]; tasks: TaskState[]; executionTimeMs: number; pipelineAttempt?: number; }
   interface HistoryEntry { workflowId: string; status: string; startTime: string; prompt?: string; }
 
   const PHASES: Phase[] = ['planning', 'validating', 'executing', 'integrating', 'reviewing', 'complete'];
@@ -523,12 +524,60 @@
               </div>
             </div>
             <div class="result-body markdown">{@html md(result.finalResponse)}</div>
-            {#if result.integrationReviewNotes}
-              <div class="review-banner markdown" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
-                {@html md(result.integrationReviewNotes)}
-              </div>
-            {/if}
           </div>
+
+          <!-- Integration Review Card -->
+          {#if result.integrationReviewNotes}
+            <div class="card review-card" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
+              <div class="card-header">
+                <span class="card-title">統合レビュー</span>
+                <span class="review-verdict" class:pass={result.integrationReviewPassed} class:fail={!result.integrationReviewPassed}>
+                  {result.integrationReviewPassed ? 'PASS' : 'FAIL'}
+                </span>
+              </div>
+
+              {#if result.score}
+                {@const score = result.score}
+                <div class="score-grid">
+                  {#each [
+                    { key: '網羅性', val: score.completeness },
+                    { key: '正確性', val: score.accuracy },
+                    { key: '構造', val: score.structure },
+                    { key: '実用性', val: score.actionability },
+                    { key: '総合', val: score.overall },
+                  ] as item}
+                    <div class="score-item">
+                      <div class="score-label">{item.key}</div>
+                      <div class="score-bar-bg">
+                        <div class="score-bar-fill" style="width:{item.val * 20}%; background:{item.val >= 4 ? 'var(--green)' : item.val >= 3 ? 'var(--amber)' : 'var(--red)'}"></div>
+                      </div>
+                      <div class="score-value">{item.val}</div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              <div class="review-notes-text markdown">{@html md(result.integrationReviewNotes)}</div>
+
+              {#if result.strengths?.length > 0}
+                <div class="review-list strengths">
+                  <div class="review-list-title">良かった点</div>
+                  {#each result.strengths as s}
+                    <div class="review-list-item">✓ {s}</div>
+                  {/each}
+                </div>
+              {/if}
+
+              {#if result.improvements?.length > 0}
+                <div class="review-list improvements">
+                  <div class="review-list-title">改善点</div>
+                  {#each result.improvements as s}
+                    <div class="review-list-item">→ {s}</div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
           <button class="run-btn full" onclick={goHome}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             新しいタスク
@@ -864,9 +913,27 @@
   :global(.markdown pre) { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.75rem; margin:0.5rem 0; overflow-x:auto; }
   :global(.markdown pre code) { background:none; padding:0; font-size:0.78rem; color:var(--text2); line-height:1.6; }
   :global(.markdown img) { max-width:100%; border-radius:var(--radius-sm); }
-  .review-banner { padding:0.75rem 1rem; font-size:0.8rem; line-height:1.5; border-top:1px solid var(--border); }
-  .review-banner.pass { background:rgba(94,232,160,0.05); color:var(--green); }
-  .review-banner.fail { background:rgba(248,113,113,0.05); color:var(--red); }
+  .review-card { overflow:hidden; }
+  .review-card.pass { border-color:rgba(94,232,160,0.3); }
+  .review-card.fail { border-color:rgba(248,113,113,0.3); }
+  .review-verdict { font-size:0.7rem; font-weight:800; padding:0.15rem 0.5rem; border-radius:99px; letter-spacing:0.05em; }
+  .review-verdict.pass { background:rgba(94,232,160,0.15); color:var(--green); }
+  .review-verdict.fail { background:rgba(248,113,113,0.15); color:var(--red); }
+
+  .score-grid { display:flex; flex-direction:column; gap:0.4rem; padding:0.75rem 1rem; border-bottom:1px solid var(--border); }
+  .score-item { display:flex; align-items:center; gap:0.5rem; }
+  .score-label { font-size:0.7rem; color:var(--text2); width:3.5rem; flex-shrink:0; font-weight:500; }
+  .score-bar-bg { flex:1; height:6px; background:var(--bg4); border-radius:99px; overflow:hidden; }
+  .score-bar-fill { height:100%; border-radius:99px; transition:width 0.5s ease; }
+  .score-value { font-size:0.75rem; font-weight:700; color:var(--text); width:1.2rem; text-align:right; }
+
+  .review-notes-text { padding:0.75rem 1rem; font-size:0.82rem; line-height:1.6; color:var(--text2); border-bottom:1px solid var(--border); }
+  .review-list { padding:0.6rem 1rem; }
+  .review-list + .review-list { border-top:1px solid var(--border); }
+  .review-list-title { font-size:0.7rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.3rem; }
+  .review-list-item { font-size:0.8rem; color:var(--text2); line-height:1.5; padding:0.1rem 0; }
+  .strengths .review-list-item { color:var(--green); }
+  .improvements .review-list-item { color:var(--amber); }
 
   /* Mobile */
   @media (max-width:1024px) {

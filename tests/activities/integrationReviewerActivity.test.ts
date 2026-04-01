@@ -21,11 +21,14 @@ describe('integrationReviewerActivity', () => {
 
   beforeEach(() => mockQuery.mockReset());
 
+  const mockScore = { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 };
+
   it('returns passed review', async () => {
     setupQueryMock(
       JSON.stringify({
-        passed: true,
-        notes: 'Response is complete and accurate',
+        passed: true, notes: 'Response is complete and accurate',
+        score: { completeness: 5, accuracy: 5, structure: 5, actionability: 4, overall: 5 },
+        strengths: ['Complete'], improvements: [],
       }),
     );
 
@@ -37,14 +40,17 @@ describe('integrationReviewerActivity', () => {
 
     expect(result.passed).toBe(true);
     expect(result.notes).toBe('Response is complete and accurate');
+    expect(result.score.overall).toBe(5);
+    expect(result.strengths).toContain('Complete');
     expect(result.revisedResponse).toBeUndefined();
   });
 
   it('returns failed review', async () => {
     setupQueryMock(
       JSON.stringify({
-        passed: false,
-        notes: 'Missing error handling throughout',
+        passed: false, notes: 'Missing error handling throughout',
+        score: { completeness: 2, accuracy: 3, structure: 3, actionability: 2, overall: 2 },
+        strengths: [], improvements: ['Add error handling'],
       }),
     );
 
@@ -56,13 +62,15 @@ describe('integrationReviewerActivity', () => {
 
     expect(result.passed).toBe(false);
     expect(result.notes).toMatch(/Missing error handling/);
+    expect(result.score.overall).toBe(2);
+    expect(result.improvements).toContain('Add error handling');
   });
 
   it('returns revised response when improvements made', async () => {
     setupQueryMock(
       JSON.stringify({
-        passed: true,
-        notes: 'Minor formatting improved',
+        passed: true, notes: 'Minor formatting improved',
+        score: mockScore, strengths: ['Well formatted'], improvements: [],
         revisedResponse: 'Better formatted response here',
       }),
     );
@@ -79,7 +87,7 @@ describe('integrationReviewerActivity', () => {
 
   it('uses file path and Read tool when integratedResponseFilePath provided', async () => {
     setupQueryMock(
-      JSON.stringify({ passed: true, notes: 'Reviewed from file' }),
+      JSON.stringify({ passed: true, notes: 'Reviewed from file', score: { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 }, strengths: [], improvements: [] }),
     );
 
     await env.run(integrationReviewerActivity, {
@@ -97,7 +105,7 @@ describe('integrationReviewerActivity', () => {
 
   it('uses inline response when no file path', async () => {
     setupQueryMock(
-      JSON.stringify({ passed: true, notes: 'ok' }),
+      JSON.stringify({ passed: true, notes: 'ok', score: { completeness: 4, accuracy: 4, structure: 4, actionability: 4, overall: 4 }, strengths: [], improvements: [] }),
     );
 
     await env.run(integrationReviewerActivity, {
@@ -112,7 +120,7 @@ describe('integrationReviewerActivity', () => {
 
   it('includes tool evidence summary in prompt when provided', async () => {
     setupQueryMock(
-      JSON.stringify({ passed: true, notes: 'Data verified via tool evidence' }),
+      JSON.stringify({ passed: true, notes: 'Data verified via tool evidence', score: { completeness: 5, accuracy: 5, structure: 4, actionability: 4, overall: 5 }, strengths: ['good'], improvements: [] }),
     );
 
     await env.run(integrationReviewerActivity, {
