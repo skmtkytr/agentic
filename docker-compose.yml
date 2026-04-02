@@ -10,6 +10,9 @@ services:
       - POSTGRES_PWD=temporal
       - POSTGRES_SEEDS=postgres
       - SKIP_DYNAMIC_CONFIG_CHECK=true
+    volumes:
+      - temporal-archival:/tmp/temporal_archival
+      - temporal-vis-archival:/tmp/temporal_vis_archival
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,3 +73,5 @@ services:
 
 volumes:
   temporal-db:
+  temporal-archival:
+  temporal-vis-archival:
