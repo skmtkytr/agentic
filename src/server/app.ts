@@ -63,6 +63,18 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         workflowId,
       };
 
+      console.log('[POST /run]', JSON.stringify({
+        workflowId,
+        prompt: prompt.slice(0, 100),
+        model: input.model,
+        provider: input.provider,
+        allowedTools: input.allowedTools,
+        agentConfig: input.agentConfig,
+        maxParallelTasks: input.maxParallelTasks,
+        maxPipelineRetries: input.maxPipelineRetries,
+        maxTaskRetries: input.maxTaskRetries,
+      }));
+
       await client.workflow.start(agenticWorkflow, {
         taskQueue: 'agentic-pipeline',
         workflowId,
