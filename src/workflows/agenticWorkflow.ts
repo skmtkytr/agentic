@@ -367,7 +367,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
 
     lastReviewPassed = integrationReview.passed;
     lastReviewNotes = integrationReview.notes;
-    lastIntegratedResponse = integrationReview.revisedResponse ?? integratedResponse;
+    lastIntegratedResponse = integrationReview.revisedResponse || integratedResponse;
 
     if (integrationReview.passed || pipelineAttempt > maxPipelineRetries) {
       // Done — either passed or exhausted retries
