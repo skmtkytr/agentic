@@ -6,6 +6,17 @@ import type { PlannerRequest, PlannerResponse } from '../types/agents';
 export async function plannerActivity(req: PlannerRequest): Promise<PlannerResponse> {
   log.info('Planner started', { promptLength: req.prompt.length, provider: req.provider ?? 'default', model: req.model });
 
+  const hasTools = req.allowedTools && req.allowedTools.length > 0;
+  const toolSection = hasTools
+    ? `\n\n## 利用可能なツール
+実行エージェントは以下のツールを使用できます。これを前提にタスクを設計してください。
+${req.allowedTools!.map(t => `- ${t}`).join('\n')}
+
+外部データ（価格、ニュース、Web情報等）が必要な場合、WebFetchやWebSearchが利用可能であれば「実際に取得する」タスクとして設計してください。
+「ツールがないから案内だけする」というタスクは、ツールが使える場合には不適切です。`
+    : `\n\n## ツール制約
+実行エージェントには外部ツールが許可されていません。LLMの知識の範囲内で実行可能なタスクのみを設計してください。`;
+
   const parsed = await callStructured(TaskPlanSchema, {
     provider: req.provider,
     model: req.model,
@@ -17,6 +28,7 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
 - どんな品質が求められているか（速度重視/正確性重視/網羅性重視 等）
 - 暗黙の期待は何か
 分析結果を userIntent に記述してください。
+${toolSection}
 
 ## ステップ2: タスク分解
 DAGを構成する実行可能タスクに分解してください。

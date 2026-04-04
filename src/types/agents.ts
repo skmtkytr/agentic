@@ -23,6 +23,7 @@ export interface PlannerRequest {
   prompt: string;
   model: string;
   provider?: string;
+  allowedTools?: string[];
 }
 
 export interface PlannerResponse {
@@ -34,6 +35,7 @@ export interface TaskDesignerRequest {
   originalPrompt: string;
   model: string;
   provider?: string;
+  allowedTools?: string[];
 }
 
 export interface TaskDesignerResponse {

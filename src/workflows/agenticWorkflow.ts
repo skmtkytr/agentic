@@ -15,22 +15,22 @@ import type { AgentRole, PipelineAttempt, ActivityEvent, ActivityEventKind, Work
 
 const NON_RETRYABLE_ERRORS = ['AnthropicAuthError'];
 
-// Planner/TaskDesigner: structured JSON output — JSON/Schema errors are non-retryable
+// Planner/TaskDesigner: structured JSON output — typically completes in 1-2 min
 const { plannerActivity, taskDesignerActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '24 hours',
+  startToCloseTimeout: '10 minutes',
   retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
 });
 
-// Executor: tool usage can be flaky — allow more retries
+// Executor: tool usage (WebFetch, Bash, etc.) can take longer
 const { executorActivity } = proxyActivities<Activities>({
-  startToCloseTimeout: '24 hours',
+  startToCloseTimeout: '30 minutes',
   retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 5, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
 });
 
-// Reviewer/Integrator/IntegrationReviewer: structured output
+// Reviewer/Integrator/IntegrationReviewer: structured output — typically completes in 1-3 min
 const { reviewerActivity, integratorActivity, integrationReviewerActivity } =
   proxyActivities<Activities>({
-    startToCloseTimeout: '24 hours',
+    startToCloseTimeout: '10 minutes',
     retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
   });
 
@@ -270,7 +270,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     log.info('Starting planning phase', { attempt: pipelineAttempt, promptPreview: currentPrompt.slice(0, 100) });
 
     const plannerCfg = resolveConfig('planner', input);
-    const { plan } = await plannerActivity({ prompt: currentPrompt, model: plannerCfg.model, provider: plannerCfg.provider });
+    const { plan } = await plannerActivity({ prompt: currentPrompt, model: plannerCfg.model, provider: plannerCfg.provider, allowedTools: input.allowedTools });
     emit('planner_done', `プラン生成完了: ${plan.tasks.length}タスク — ${plan.planSummary.slice(0, 100)}`);
 
     if (cancelled) {
@@ -283,7 +283,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     log.info('Starting task design phase', { taskCount: plan.tasks.length });
 
     const designerCfg = resolveConfig('taskDesigner', input);
-    const { result: design } = await taskDesignerActivity({ plan, originalPrompt: input.prompt, model: designerCfg.model, provider: designerCfg.provider });
+    const { result: design } = await taskDesignerActivity({ plan, originalPrompt: input.prompt, model: designerCfg.model, provider: designerCfg.provider, allowedTools: input.allowedTools });
 
     if (!design.valid) {
       emit('designer_done', `設計失敗: ${design.issues.join('; ')}`);

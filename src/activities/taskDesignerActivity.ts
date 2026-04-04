@@ -8,11 +8,16 @@ export async function taskDesignerActivity(req: TaskDesignerRequest): Promise<Ta
 
   const planJson = JSON.stringify(req.plan, null, 2);
 
+  const hasTools = req.allowedTools && req.allowedTools.length > 0;
+  const toolSection = hasTools
+    ? `\n## 利用可能なツール\n実行エージェントは以下のツールを使用できます: ${req.allowedTools!.join(', ')}\n成功基準の設計時にツールの活用を前提としてください。\n`
+    : `\n## ツール制約\n実行エージェントには外部ツールが許可されていません。\n`;
+
   const result = await callStructured(TaskDesignResultSchema, {
     provider: req.provider,
     model: req.model,
     system: `あなたはタスク設計エージェントです。タスクプラン（DAG）を検証し、各タスクの実行指針を設計してください。
-
+${toolSection}
 ## 検証チェック（必須）
 1. 循環依存（タスクAがBに依存し、BがAに依存している等）
 2. 存在しないIDへの依存参照
