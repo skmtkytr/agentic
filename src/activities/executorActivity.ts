@@ -23,7 +23,11 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     ? `\n\n重要: あなたには以下のツールが許可されています: ${req.allowedTools!.join(', ')}
 外部データ（価格、ニュース、API等）が必要な場合は、必ずこれらのツールを使って実際にデータを取得してください。
 ツールを使わずに推測やハルシネーションでデータを生成することは絶対に禁止です。
-ツールが使えない場合は、その旨を正直に報告してください。`
+ツールが使えない場合は、その旨を正直に報告してください。
+
+★最重要★: ツールでデータを取得した後、必ずその結果を整理して**テキストとして最終回答に含めてください**。
+ツールを実行するだけで終わらないでください。取得したデータを分析・整理し、包括的なレポートとして最終テキスト出力に書き出してください。
+最終出力が空や1行だけになることは絶対に許容されません。`
     : `\n\n注意: 外部ツールは使用できません。知識の範囲内で回答してください。リアルタイムデータや外部情報が必要な場合は、その旨を明記してください。`;
 
   // Build task-specific guidance from Planner output
@@ -44,7 +48,7 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     ? `\n品質指針: ${req.planContext.qualityGuidelines}`
     : '';
 
-  const { text, toolUsage } = await callRawText({
+  let { text, toolUsage } = await callRawText({
     provider: req.provider,
     model: req.model,
     system: `あなたはタスク実行エージェントです。割り当てられたタスクを完遂してください。
@@ -52,6 +56,20 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     userContent: `元のリクエスト: ${req.originalPrompt}\n\nあなたのタスク: ${task.description}${guidanceSection}\n\nこのタスクを日本語で徹底的に完遂してください。`,
     allowedTools: req.allowedTools,
   });
+
+  // Fallback: if LLM returned empty text but used tools, construct result from tool outputs
+  if (!text.trim() && toolUsage.length > 0) {
+    log.warn('Executor produced empty text with tool usage, constructing fallback result', {
+      taskId: req.task.id,
+      toolCount: toolUsage.length,
+    });
+    text = `# ${task.description}\n\n以下のツールを使用してデータを取得しました。\n\n${toolUsage
+      .map(
+        (t) =>
+          `## ${t.tool}: ${t.input}\n\n${t.output}`,
+      )
+      .join('\n\n---\n\n')}`;
+  }
 
   // Write result and tool evidence to files
   let resultFilePath: string | undefined;
