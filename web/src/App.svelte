@@ -83,6 +83,7 @@
   let localModels = $state<string[]>([]);
   let maxRetries = $state(0);
   let maxTaskRetries = $state(0);
+  let maxParallelTasks = $state(3);
   let enabledTools = $state<Set<string>>(new Set());
 
   // Fetch local LLM models on mount
@@ -111,7 +112,7 @@
     cur[role] = { ...cur[role], model };
     agentConfig = cur;
   }
-  interface WorkflowConfig { model?: string; provider?: string; allowedTools?: string[]; agentConfig?: Partial<Record<AgentRole, AgentLLMConfig>>; maxPipelineRetries?: number; maxTaskRetries?: number; }
+  interface WorkflowConfig { model?: string; provider?: string; allowedTools?: string[]; agentConfig?: Partial<Record<AgentRole, AgentLLMConfig>>; maxPipelineRetries?: number; maxTaskRetries?: number; maxParallelTasks?: number; }
   let workflowId = $state<string | null>(null);
   let workflowPrompt = $state<string | null>(null);
   let workflowConfig = $state<WorkflowConfig | null>(null);
@@ -178,6 +179,7 @@
         allowedTools: enabledTools.size > 0 ? [...enabledTools] : undefined,
         maxPipelineRetries: maxRetries || undefined,
         maxTaskRetries: maxTaskRetries || undefined,
+        maxParallelTasks: maxParallelTasks !== 3 ? maxParallelTasks : undefined,
       };
       if (configPayload) body.agentConfig = configPayload;
       const r = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -278,6 +280,7 @@
       if (cfg.agentConfig) agentConfig = cfg.agentConfig;
       if (cfg.maxPipelineRetries != null) maxRetries = cfg.maxPipelineRetries;
       if (cfg.maxTaskRetries != null) maxTaskRetries = cfg.maxTaskRetries;
+      if (cfg.maxParallelTasks != null) maxParallelTasks = cfg.maxParallelTasks;
     }
   }
   function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
@@ -369,6 +372,16 @@
                   <option value={1}>1回</option>
                   <option value={2}>2回</option>
                   <option value={3}>3回</option>
+                </select>
+              </div>
+              <div class="retry-input">
+                <label for="parallel">並列数</label>
+                <select id="parallel" bind:value={maxParallelTasks} disabled={loading}>
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
                 </select>
               </div>
             </div>
