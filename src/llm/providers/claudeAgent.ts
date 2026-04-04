@@ -15,6 +15,8 @@ export interface ClaudeAgentProviderOptions {
   apiKey?: string;
   /** Disable thinking/reasoning for models that don't support it (e.g. local LLMs). */
   disableThinking?: boolean;
+  /** Fallback model when primary fails. Must differ from primary model. */
+  fallbackModel?: string;
 }
 
 /**
@@ -28,11 +30,13 @@ export class ClaudeAgentProvider implements LLMProvider {
   readonly timeoutMs: number;
   private envOverrides: Record<string, string>;
   private disableThinking: boolean;
+  private fallbackModel?: string;
 
   constructor(opts?: ClaudeAgentProviderOptions) {
     this.name = opts?.name ?? 'claude-agent';
     this.timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.disableThinking = opts?.disableThinking ?? false;
+    this.fallbackModel = opts?.fallbackModel;
     this.envOverrides = {};
     if (opts?.baseURL) {
       this.envOverrides.ANTHROPIC_BASE_URL = opts.baseURL;
@@ -73,7 +77,8 @@ export class ClaudeAgentProvider implements LLMProvider {
         ...(opts.jsonMode || !hasTools
           ? { tools: [], permissionMode: 'dontAsk' as const }
           : { allowedTools: opts.allowedTools, permissionMode: 'dontAsk' as const }),
-        ...(opts.model ? { model: opts.model, fallbackModel: opts.model } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(this.fallbackModel ? { fallbackModel: this.fallbackModel } : {}),
         ...(this.disableThinking ? { thinking: { type: 'disabled' as const } } : {}),
         ...envOption,
       },

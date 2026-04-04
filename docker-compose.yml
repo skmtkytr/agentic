@@ -72,6 +72,7 @@ services:
       - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-}
       - LOCAL_LLM_PROVIDER_NAME=${LOCAL_LLM_PROVIDER_NAME:-local-llm}
       - LOCAL_LLM_API_KEY=${LOCAL_LLM_API_KEY:-local-llm}
+      - LOCAL_LLM_FALLBACK_MODEL=${LOCAL_LLM_FALLBACK_MODEL:-}
       - ARTIFACT_DIR=/data/artifacts
     volumes:
       - ${CLAUDE_CONFIG_DIR:-~/.config/claude}:/root/.claude

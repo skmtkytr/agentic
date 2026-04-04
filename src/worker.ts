@@ -26,6 +26,7 @@ if (process.env.LOCAL_LLM_BASE_URL) {
     baseURL,
     apiKey,
     disableThinking: true,
+    fallbackModel: process.env.LOCAL_LLM_FALLBACK_MODEL,
   }));
   console.log(`Registered local LLM provider (agent): ${providerName} at ${baseURL}`);
 
