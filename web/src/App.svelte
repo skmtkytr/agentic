@@ -133,12 +133,26 @@
     workflowPrompt = workflowHistory.find((w) => w.workflowId === id)?.prompt ?? null;
     try {
       const r = await fetch(`/api/workflow/${id}`); if (!r.ok) { error = 'Workflow not found'; loading = false; return; }
-      const d = await r.json(); if (d.status === 'COMPLETED') await fetchResult(id); else if (d.status === 'RUNNING') connectSse(id); else { error = `Status: ${d.status}`; loading = false; }
+      const d = await r.json();
+      if (d.status === 'COMPLETED') await fetchResult(id);
+      else if (d.status === 'RUNNING') connectSse(id);
+      else if (d.status === 'FAILED') {
+        // Try to get events for failure details
+        try {
+          const sr = await fetch(`/api/workflow/${id}`);
+          const sd = await sr.json();
+          // Try query for events
+          const qr = await fetch(`/api/status/${id}`);
+          // SSE won't work for completed workflows, just show phase
+          error = `Workflow failed (phase: ${sd.phase ?? 'unknown'})`;
+        } catch { error = 'Workflow failed'; }
+        loading = false;
+      } else { error = `Status: ${d.status}`; loading = false; }
     } catch (e) { error = (e as Error).message; loading = false; }
   }
   function connectSse(id: string) {
     const sse = new EventSource(`/api/status/${id}`); currentSse = sse;
-    sse.onmessage = (e) => { const d = JSON.parse(e.data); if (d.type==='status') { wfState = d; requestAnimationFrame(scrollEventLog); if (d.phase==='complete'||d.phase==='failed') { sse.close(); currentSse=null; if (d.phase==='complete') fetchResult(id); else { loading=false; error='Workflow failed'; } loadHistory(); } } };
+    sse.onmessage = (e) => { const d = JSON.parse(e.data); if (d.type==='status') { wfState = d; requestAnimationFrame(scrollEventLog); if (d.phase==='complete'||d.phase==='failed') { sse.close(); currentSse=null; if (d.phase==='complete') fetchResult(id); else { loading=false; const lastEvent = d.events?.[d.events.length-1]; error=lastEvent?.summary ? `Workflow failed: ${lastEvent.summary}` : 'Workflow failed'; } loadHistory(); } } };
     sse.onerror = () => { sse.close(); currentSse=null; fetchResult(id).catch(()=>{loading=false;}); };
   }
   function toggleTool(id: string) { const n=new Set(enabledTools); if(n.has(id))n.delete(id);else n.add(id); enabledTools=n; }

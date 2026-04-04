@@ -44,6 +44,14 @@ export async function callStructured<T extends z.ZodTypeAny>(
   opts: LLMCallOptions,
 ): Promise<z.infer<T>> {
   const provider = registry.get(opts.provider);
+  log.info('callStructured: calling LLM', {
+    provider: provider.name,
+    model: opts.model ?? 'default',
+    systemLength: opts.system.length,
+    userContentLength: opts.userContent.length,
+    allowedTools: opts.allowedTools ?? [],
+  });
+
   const { text: resultText } = await provider.call({
     model: opts.model,
     system: opts.system,
@@ -52,6 +60,11 @@ export async function callStructured<T extends z.ZodTypeAny>(
       '\n\nYou MUST respond with ONLY valid JSON. No explanations, no markdown code blocks, just raw JSON.',
     jsonMode: !opts.allowedTools?.length,
     allowedTools: opts.allowedTools,
+  });
+
+  log.info('callStructured: LLM responded', {
+    resultLength: resultText?.length ?? 0,
+    preview: resultText?.slice(0, 200) ?? '(empty)',
   });
 
   if (!resultText) {
