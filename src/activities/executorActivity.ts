@@ -7,6 +7,8 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
   log.info('Executor started', {
     taskId: req.task.id,
     description: req.task.description.slice(0, 80),
+    provider: req.provider ?? 'default',
+    model: req.model,
   });
 
   const contextSection =
@@ -25,6 +27,7 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
     : `\n\n注意: 外部ツールは使用できません。知識の範囲内で回答してください。リアルタイムデータや外部情報が必要な場合は、その旨を明記してください。`;
 
   const { text, toolUsage } = await callRawText({
+    provider: req.provider,
     model: req.model,
     system: `あなたはタスク実行エージェントです。割り当てられたタスクを完遂してください。
 ユーザーの元のリクエストはコンテキストとして提供されます。自分に割り当てられたタスクに集中し、高品質で完全な結果を日本語で出力してください。${toolInstruction}${contextSection}`,

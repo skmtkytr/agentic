@@ -4,7 +4,7 @@ import { writeIntegratedResult } from './artifactStore';
 import type { IntegratorRequest, IntegratorResponse } from '../types/agents';
 
 export async function integratorActivity(req: IntegratorRequest): Promise<IntegratorResponse> {
-  log.info('Integrator started', { taskCount: req.reviewedTasks.length, hasFiles: !!req.taskResultFiles?.length });
+  log.info('Integrator started', { taskCount: req.reviewedTasks.length, hasFiles: !!req.taskResultFiles?.length, provider: req.provider ?? 'default', model: req.model });
 
   // Build task section: use file paths if available, otherwise inline results
   let taskResultsSection: string;
@@ -25,6 +25,7 @@ export async function integratorActivity(req: IntegratorRequest): Promise<Integr
   }
 
   const { text: integratedResponse } = await callRawText({
+    provider: req.provider,
     model: req.model,
     system: `あなたは統合エージェントです。複数のタスクの実行結果を、ユーザーの元のリクエストに直接対応する一貫した高品質な回答に統合してください。
 

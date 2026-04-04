@@ -128,6 +128,64 @@ describe('Server API', () => {
       expect(args.allowedTools).toEqual(['WebFetch', 'Bash']);
     });
 
+    it('passes agentConfig to workflow input', async () => {
+      const startFn = jest.fn().mockResolvedValue(undefined);
+      const mockClient = makeMockClient({ start: startFn });
+      const { app } = createApp(async () => mockClient);
+
+      const agentConfig = {
+        planner: { provider: 'local-llm', model: 'qwen3-32b' },
+        executor: { provider: 'claude-agent', model: 'claude-sonnet-4-6' },
+      };
+
+      await request(app)
+        .post('/api/run')
+        .send({ prompt: 'Test', agentConfig });
+
+      const args = startFn.mock.calls[0][1].args[0];
+      expect(args.agentConfig).toEqual(agentConfig);
+    });
+
+    it('passes provider to workflow input', async () => {
+      const startFn = jest.fn().mockResolvedValue(undefined);
+      const mockClient = makeMockClient({ start: startFn });
+      const { app } = createApp(async () => mockClient);
+
+      await request(app)
+        .post('/api/run')
+        .send({ prompt: 'Test', provider: 'local-llm' });
+
+      const args = startFn.mock.calls[0][1].args[0];
+      expect(args.provider).toBe('local-llm');
+    });
+
+    it('merges DEFAULT_AGENT_CONFIG env with request agentConfig', async () => {
+      const original = process.env.DEFAULT_AGENT_CONFIG;
+      process.env.DEFAULT_AGENT_CONFIG = JSON.stringify({
+        planner: { provider: 'local-llm' },
+        reviewer: { provider: 'local-llm' },
+      });
+
+      const startFn = jest.fn().mockResolvedValue(undefined);
+      const mockClient = makeMockClient({ start: startFn });
+      const { app } = createApp(async () => mockClient);
+
+      await request(app)
+        .post('/api/run')
+        .send({
+          prompt: 'Test',
+          agentConfig: { planner: { provider: 'claude-agent' } },
+        });
+
+      const args = startFn.mock.calls[0][1].args[0];
+      // Request overrides env for planner
+      expect(args.agentConfig.planner.provider).toBe('claude-agent');
+      // Env default preserved for reviewer
+      expect(args.agentConfig.reviewer.provider).toBe('local-llm');
+
+      process.env.DEFAULT_AGENT_CONFIG = original;
+    });
+
     it('returns 500 when workflow start fails', async () => {
       const mockClient = makeMockClient({
         start: async () => { throw new Error('Temporal unavailable'); },

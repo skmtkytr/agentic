@@ -4,7 +4,7 @@ import { ReviewerResultSchema } from '../types/schemas';
 import type { ReviewerRequest, ReviewerResponse } from '../types/agents';
 
 export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerResponse> {
-  log.info('Reviewer started', { taskId: req.task.id, hasFilePath: !!req.resultFilePath });
+  log.info('Reviewer started', { taskId: req.task.id, hasFilePath: !!req.resultFilePath, provider: req.provider ?? 'default', model: req.model });
 
   // If file path available, instruct LLM to read file instead of embedding full text
   const resultSection = req.resultFilePath
@@ -16,6 +16,7 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
     : '';
 
   const result = await callStructured(ReviewerResultSchema, {
+    provider: req.provider,
     model: req.model,
     // Allow Read tool so LLM can read the result file
     allowedTools: req.resultFilePath ? ['Read'] : undefined,

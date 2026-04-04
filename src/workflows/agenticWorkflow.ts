@@ -9,7 +9,7 @@ import {
 import type { Activities } from '../activities/index';
 import type { Task } from '../types/task';
 import type { ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
-import type { ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
+import type { AgentRole, ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
 
 // --- Activity proxies with distinct retry policies ---
 
@@ -35,6 +35,19 @@ const { reviewerActivity, integratorActivity, integrationReviewerActivity } =
 export const statusQuery = defineQuery<WorkflowState>('status');
 export const cancelSignal = defineSignal('cancel');
 
+// --- Config resolution helper ---
+
+function resolveConfig(
+  role: AgentRole,
+  input: WorkflowInput,
+): { model: string; provider?: string } {
+  const roleConfig = input.agentConfig?.[role];
+  return {
+    model: roleConfig?.model ?? input.model ?? 'claude-opus-4-6',
+    provider: roleConfig?.provider ?? input.provider,
+  };
+}
+
 // --- DAG execution helper ---
 
 async function executeDag(
@@ -43,14 +56,16 @@ async function executeDag(
   resultFilePaths: Map<string, string>,
   allToolEvidence: ToolEvidenceEntry[],
   state: WorkflowState,
-  originalPrompt: string,
-  model: string,
+  input: WorkflowInput,
   maxParallelTasks: number,
   emit: (kind: ActivityEventKind, summary: string, taskId?: string, taskDescription?: string) => void,
-  allowedTools?: string[],
   maxTaskRetries: number = 0,
-  workflowId?: string,
 ): Promise<void> {
+  const originalPrompt = input.prompt;
+  const allowedTools = input.allowedTools;
+  const workflowId = input.workflowId;
+  const executorCfg = resolveConfig('executor', input);
+  const reviewerCfg = resolveConfig('reviewer', input);
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
   const done = new Set<string>();
 
@@ -100,7 +115,8 @@ async function executeDag(
               : task,
             completedTaskResults: context,
             originalPrompt,
-            model,
+            model: executorCfg.model,
+            provider: executorCfg.provider,
             allowedTools,
             workflowId,
           });
@@ -129,7 +145,8 @@ async function executeDag(
             result: execResult.result,
             resultFilePath: execResult.resultFilePath,
             originalPrompt,
-            model,
+            model: reviewerCfg.model,
+            provider: reviewerCfg.provider,
             toolUsage: taskToolUsage,
           });
 
@@ -172,7 +189,6 @@ async function executeDag(
 
 export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOutput> {
   const startTime = Date.now();
-  const model = input.model ?? 'claude-opus-4-6';
   const maxParallelTasks = input.maxParallelTasks ?? 3;
   const maxPipelineRetries = input.maxPipelineRetries ?? 0;
 
@@ -233,7 +249,8 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     emit('planner_start', `プランニング開始${pipelineAttempt > 1 ? ` (試行 ${pipelineAttempt})` : ''}`);
     log.info('Starting planning phase', { attempt: pipelineAttempt, promptPreview: currentPrompt.slice(0, 100) });
 
-    const { plan } = await plannerActivity({ prompt: currentPrompt, model });
+    const plannerCfg = resolveConfig('planner', input);
+    const { plan } = await plannerActivity({ prompt: currentPrompt, model: plannerCfg.model, provider: plannerCfg.provider });
     emit('planner_done', `プラン生成完了: ${plan.tasks.length}タスク — ${plan.planSummary.slice(0, 100)}`);
 
     if (cancelled) {
@@ -245,7 +262,8 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     emit('validator_start', 'プラン検証開始');
     log.info('Starting validation phase', { taskCount: plan.tasks.length });
 
-    const { result: validation } = await validatorActivity({ plan, model });
+    const validatorCfg = resolveConfig('validator', input);
+    const { result: validation } = await validatorActivity({ plan, model: validatorCfg.model, provider: validatorCfg.provider });
 
     if (!validation.valid) {
       emit('validator_done', `検証失敗: ${validation.issues.join('; ')}`);
@@ -276,7 +294,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     const resultFilePaths = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
     const maxTaskRetries = input.maxTaskRetries ?? 0;
-    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input.prompt, model, maxParallelTasks, emit, input.allowedTools, maxTaskRetries, input.workflowId);
+    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input, maxParallelTasks, emit, maxTaskRetries);
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
@@ -293,11 +311,13 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       .filter((t) => resultFilePaths.has(t.id))
       .map((t) => ({ taskId: t.id, description: t.description, filePath: resultFilePaths.get(t.id)! }));
 
+    const integratorCfg = resolveConfig('integrator', input);
     const { integratedResponse, integratedResponseFilePath } = await integratorActivity({
       originalPrompt: input.prompt,
       reviewedTasks,
       taskResultFiles: taskResultFiles.length > 0 ? taskResultFiles : undefined,
-      model,
+      model: integratorCfg.model,
+      provider: integratorCfg.provider,
       allowedTools: input.allowedTools,
       workflowId: input.workflowId,
     });
@@ -308,11 +328,13 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     emit('integration_reviewer_start', '統合レビュー開始');
     log.info('Starting integration review phase');
 
+    const integrationReviewerCfg = resolveConfig('integrationReviewer', input);
     const integrationReview = await integrationReviewerActivity({
       originalPrompt: input.prompt,
       integratedResponse,
       integratedResponseFilePath,
-      model,
+      model: integrationReviewerCfg.model,
+      provider: integrationReviewerCfg.provider,
       toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
     });
     emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);

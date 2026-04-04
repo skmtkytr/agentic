@@ -5,20 +5,37 @@ import type { ToolUsageRecord } from '../../types/agents';
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface ClaudeAgentProviderOptions {
+  /** Provider name for registry (default: 'claude-agent') */
+  name?: string;
   timeoutMs?: number;
+  /** Override the Anthropic API base URL (e.g. local LLM endpoint).
+   *  Passed as ANTHROPIC_BASE_URL env var to the claude CLI subprocess. */
+  baseURL?: string;
+  /** API key to use. Passed as ANTHROPIC_API_KEY env var. */
+  apiKey?: string;
 }
 
 /**
  * LLM provider using Claude Agent SDK (claude CLI subprocess).
- * Uses Claude Code's OAuth session for authentication.
+ * Uses Claude Code's OAuth session for authentication by default.
+ * Can be pointed at alternative Anthropic-compatible endpoints via baseURL.
  * Includes a timeout to prevent hung subprocesses from blocking indefinitely.
  */
 export class ClaudeAgentProvider implements LLMProvider {
-  readonly name = 'claude-agent';
+  readonly name: string;
   readonly timeoutMs: number;
+  private envOverrides: Record<string, string>;
 
   constructor(opts?: ClaudeAgentProviderOptions) {
+    this.name = opts?.name ?? 'claude-agent';
     this.timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.envOverrides = {};
+    if (opts?.baseURL) {
+      this.envOverrides.ANTHROPIC_BASE_URL = opts.baseURL;
+    }
+    if (opts?.apiKey) {
+      this.envOverrides.ANTHROPIC_API_KEY = opts.apiKey;
+    }
   }
 
   async call(opts: LLMProviderCallOptions): Promise<LLMProviderResult> {
@@ -41,6 +58,10 @@ export class ClaudeAgentProvider implements LLMProvider {
 
     const hasTools = opts.allowedTools && opts.allowedTools.length > 0;
 
+    const envOption = Object.keys(this.envOverrides).length > 0
+      ? { env: { ...process.env, ...this.envOverrides } }
+      : {};
+
     for await (const message of query({
       prompt: opts.prompt,
       options: {
@@ -49,6 +70,7 @@ export class ClaudeAgentProvider implements LLMProvider {
           ? { tools: [], permissionMode: 'dontAsk' as const }
           : { allowedTools: opts.allowedTools, permissionMode: 'dontAsk' as const }),
         ...(opts.model ? { model: opts.model } : {}),
+        ...envOption,
       },
     })) {
       if ('result' in message) {

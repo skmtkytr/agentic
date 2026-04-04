@@ -4,11 +4,12 @@ import { ValidationResultSchema } from '../types/schemas';
 import type { ValidatorRequest, ValidatorResponse } from '../types/agents';
 
 export async function validatorActivity(req: ValidatorRequest): Promise<ValidatorResponse> {
-  log.info('Validator started', { taskCount: req.plan.tasks.length });
+  log.info('Validator started', { taskCount: req.plan.tasks.length, provider: req.provider ?? 'default', model: req.model });
 
   const planJson = JSON.stringify(req.plan, null, 2);
 
   const result = await callStructured(ValidationResultSchema, {
+    provider: req.provider,
     model: req.model,
     system: `あなたはバリデーションエージェントです。タスクプラン（DAG）を検証し、正確性を確認してください。
 

@@ -68,6 +68,33 @@ describe('plannerActivity', () => {
     ).rejects.toThrow(/Schema validation failed/);
   });
 
+  it('passes provider to callStructured', async () => {
+    // Register a test provider in the registry
+    const { registry } = require('../../src/llm/providerRegistry');
+
+    const planJson = JSON.stringify({
+      planSummary: 'A plan',
+      tasks: [
+        { id: 'task_1', description: 'Do something', dependsOn: [], status: 'pending', reviewPassed: false },
+      ],
+    });
+
+    registry.register({
+      name: 'local-llm',
+      call: async () => ({ text: planJson, toolUsage: [] }),
+    });
+
+    const result = (await env.run(plannerActivity, {
+      prompt: 'Test',
+      model: 'test-model',
+      provider: 'local-llm',
+    })) as PlannerResponse;
+
+    // Verify it used the local-llm provider (which returned our planJson)
+    expect(result.plan.tasks).toHaveLength(1);
+    expect(result.plan.planSummary).toBe('A plan');
+  });
+
   it('strips markdown code fences before parsing', async () => {
     const planJson = JSON.stringify({
       planSummary: 'A plan',

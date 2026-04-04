@@ -7,30 +7,34 @@ jest.mock('@temporalio/activity', () => ({
 }));
 
 import { z } from 'zod';
-import { callStructured, callRawText, setProvider } from '../../src/llm/parseWithRetry';
+import { callStructured, callRawText } from '../../src/llm/parseWithRetry';
+import { registry } from '../../src/llm/providerRegistry';
 import type { LLMProvider, LLMProviderCallOptions, LLMProviderResult } from '../../src/llm/provider';
 
-function makeMockProvider(response: string | ((opts: LLMProviderCallOptions) => LLMProviderResult)): LLMProvider {
+function makeMockProvider(
+  response: string | ((opts: LLMProviderCallOptions) => LLMProviderResult),
+  name = 'mock',
+): LLMProvider {
   return {
-    name: 'mock',
-    call: async (opts) => {
+    name,
+    call: async (opts: LLMProviderCallOptions) => {
       if (typeof response === 'function') return response(opts);
       return { text: response, toolUsage: [] };
     },
   };
 }
 
+function setTestProvider(provider: LLMProvider) {
+  registry.register(provider);
+  registry.setDefault(provider.name);
+}
+
 const TestSchema = z.object({ name: z.string(), value: z.number() });
 
 describe('Provider abstraction', () => {
-  afterEach(() => {
-    // Reset to default provider
-    setProvider(undefined as any);
-  });
-
-  describe('setProvider + callStructured', () => {
-    it('uses custom provider for structured calls', async () => {
-      setProvider(makeMockProvider('{"name":"test","value":42}'));
+  describe('registry + callStructured', () => {
+    it('uses registered provider for structured calls', async () => {
+      setTestProvider(makeMockProvider('{"name":"test","value":42}'));
 
       const result = await callStructured(TestSchema, {
         system: 'test',
@@ -42,9 +46,9 @@ describe('Provider abstraction', () => {
 
     it('passes jsonMode: true to provider for structured calls', async () => {
       let receivedOpts: LLMProviderCallOptions | undefined;
-      setProvider({
+      setTestProvider({
         name: 'spy',
-        call: async (opts) => {
+        call: async (opts: LLMProviderCallOptions) => {
           receivedOpts = opts;
           return { text: '{"name":"x","value":0}', toolUsage: [] };
         },
@@ -58,9 +62,9 @@ describe('Provider abstraction', () => {
 
     it('passes model to provider', async () => {
       let receivedModel: string | undefined;
-      setProvider({
+      setTestProvider({
         name: 'spy',
-        call: async (opts) => {
+        call: async (opts: LLMProviderCallOptions) => {
           receivedModel = opts.model;
           return { text: '{"name":"x","value":0}', toolUsage: [] };
         },
@@ -70,11 +74,17 @@ describe('Provider abstraction', () => {
 
       expect(receivedModel).toBe('gpt-4o');
     });
+
+    it('selects provider by name', async () => {
+      registry.register(makeMockProvider('{"name":"named","value":1}', 'specific'));
+      const result = await callStructured(TestSchema, { system: 's', userContent: 'u', provider: 'specific' });
+      expect(result.name).toBe('named');
+    });
   });
 
-  describe('setProvider + callRawText', () => {
-    it('uses custom provider for raw text calls', async () => {
-      setProvider(makeMockProvider('Hello from custom provider'));
+  describe('registry + callRawText', () => {
+    it('uses registered provider for raw text calls', async () => {
+      setTestProvider(makeMockProvider('Hello from custom provider'));
 
       const result = await callRawText({ system: 'test', userContent: 'test' });
 
@@ -83,9 +93,9 @@ describe('Provider abstraction', () => {
 
     it('passes allowedTools to provider', async () => {
       let receivedTools: string[] | undefined;
-      setProvider({
+      setTestProvider({
         name: 'spy',
-        call: async (opts) => {
+        call: async (opts: LLMProviderCallOptions) => {
           receivedTools = opts.allowedTools;
           return { text: 'ok', toolUsage: [] };
         },
@@ -97,7 +107,7 @@ describe('Provider abstraction', () => {
     });
 
     it('returns tool usage from provider', async () => {
-      setProvider(makeMockProvider(() => ({
+      setTestProvider(makeMockProvider(() => ({
         text: 'result',
         toolUsage: [{ tool: 'WebFetch', input: 'https://example.com', output: '{}', timestamp: 123 }],
       })));
@@ -110,9 +120,9 @@ describe('Provider abstraction', () => {
 
     it('does not pass jsonMode for raw text calls', async () => {
       let receivedOpts: LLMProviderCallOptions | undefined;
-      setProvider({
+      setTestProvider({
         name: 'spy',
-        call: async (opts) => {
+        call: async (opts: LLMProviderCallOptions) => {
           receivedOpts = opts;
           return { text: 'ok', toolUsage: [] };
         },

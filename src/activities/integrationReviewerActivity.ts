@@ -14,6 +14,8 @@ export async function integrationReviewerActivity(
     responseLength: req.integratedResponse.length,
     toolEvidenceCount: req.toolEvidence?.length ?? 0,
     hasFilePath,
+    provider: req.provider ?? 'default',
+    model: req.model,
   });
 
   // If file path is available, instruct LLM to read it via Read tool
@@ -34,6 +36,7 @@ export async function integrationReviewerActivity(
     : '';
 
   const result = await callStructured(IntegrationReviewerResultSchema, {
+    provider: req.provider,
     model: req.model,
     allowedTools: hasFilePath ? ['Read'] : undefined,
     system: `あなたは最終品質保証エージェントです。統合された回答をユーザーの元のリクエストに対して多角的に評価してください。

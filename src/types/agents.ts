@@ -17,6 +17,7 @@ export interface ToolEvidenceEntry {
 export interface PlannerRequest {
   prompt: string;
   model: string;
+  provider?: string;
 }
 
 export interface PlannerResponse {
@@ -26,6 +27,7 @@ export interface PlannerResponse {
 export interface ValidatorRequest {
   plan: TaskPlan;
   model: string;
+  provider?: string;
 }
 
 export interface ValidatorResponse {
@@ -37,6 +39,7 @@ export interface ExecutorRequest {
   completedTaskResults: Array<{ taskId: string; description: string; result: string }>;
   originalPrompt: string;
   model: string;
+  provider?: string;
   allowedTools?: string[];
   workflowId?: string;
 }
@@ -55,6 +58,7 @@ export interface ReviewerRequest {
   resultFilePath?: string;
   originalPrompt: string;
   model: string;
+  provider?: string;
   toolUsage?: ToolUsageRecord[];
 }
 
@@ -70,6 +74,7 @@ export interface IntegratorRequest {
   reviewedTasks: Task[];
   taskResultFiles?: Array<{ taskId: string; description: string; filePath: string }>;
   model: string;
+  provider?: string;
   allowedTools?: string[];
   workflowId?: string;
 }
@@ -84,6 +89,7 @@ export interface IntegrationReviewerRequest {
   integratedResponse: string;
   integratedResponseFilePath?: string;
   model: string;
+  provider?: string;
   toolEvidence?: ToolEvidenceEntry[];
 }
 

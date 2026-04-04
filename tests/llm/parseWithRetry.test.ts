@@ -7,57 +7,63 @@ jest.mock('@temporalio/activity', () => ({
 }));
 
 import { z } from 'zod';
-import { callStructured, callRawText, setProvider } from '../../src/llm/parseWithRetry';
-import type { LLMProvider } from '../../src/llm/provider';
+import { callStructured, callRawText } from '../../src/llm/parseWithRetry';
+import { registry } from '../../src/llm/providerRegistry';
+import type { LLMProvider, LLMProviderCallOptions } from '../../src/llm/provider';
 
-function mockProvider(text: string): LLMProvider {
+function mockProvider(text: string, name = 'test'): LLMProvider {
   return {
-    name: 'test',
+    name,
     call: async () => ({ text, toolUsage: [] }),
   };
+}
+
+function setTestProvider(provider: LLMProvider) {
+  registry.register(provider);
+  registry.setDefault(provider.name);
 }
 
 const TestSchema = z.object({ name: z.string(), value: z.number() });
 
 describe('callStructured', () => {
   it('parses valid JSON and validates against schema', async () => {
-    setProvider(mockProvider('{"name":"test","value":42}'));
+    setTestProvider(mockProvider('{"name":"test","value":42}'));
     const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result).toEqual({ name: 'test', value: 42 });
   });
 
   it('strips markdown code fences before parsing', async () => {
-    setProvider(mockProvider('```json\n{"name":"fenced","value":1}\n```'));
+    setTestProvider(mockProvider('```json\n{"name":"fenced","value":1}\n```'));
     const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result.name).toBe('fenced');
   });
 
   it('strips code fences without json label', async () => {
-    setProvider(mockProvider('```\n{"name":"plain","value":2}\n```'));
+    setTestProvider(mockProvider('```\n{"name":"plain","value":2}\n```'));
     const result = await callStructured(TestSchema, { system: 'test', userContent: 'test' });
     expect(result.name).toBe('plain');
   });
 
   it('throws on invalid JSON', async () => {
-    setProvider(mockProvider('not json'));
+    setTestProvider(mockProvider('not json'));
     await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/JSON parse failed/);
   });
 
   it('throws on schema validation failure', async () => {
-    setProvider(mockProvider('{"name":"test","value":"not_a_number"}'));
+    setTestProvider(mockProvider('{"name":"test","value":"not_a_number"}'));
     await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/Schema validation failed/);
   });
 
   it('throws when result is empty', async () => {
-    setProvider(mockProvider(''));
+    setTestProvider(mockProvider(''));
     await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/LLM returned empty result/);
   });
 
   it('appends JSON instruction to prompt', async () => {
     let receivedPrompt = '';
-    setProvider({
+    setTestProvider({
       name: 'spy',
-      call: async (opts) => { receivedPrompt = opts.prompt; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
+      call: async (opts: LLMProviderCallOptions) => { receivedPrompt = opts.prompt; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
     });
     await callStructured(TestSchema, { system: 's', userContent: 'original prompt' });
     expect(receivedPrompt).toContain('original prompt');
@@ -66,34 +72,40 @@ describe('callStructured', () => {
 
   it('passes model to provider', async () => {
     let receivedModel: string | undefined;
-    setProvider({
+    setTestProvider({
       name: 'spy',
-      call: async (opts) => { receivedModel = opts.model; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
+      call: async (opts: LLMProviderCallOptions) => { receivedModel = opts.model; return { text: '{"name":"x","value":0}', toolUsage: [] }; },
     });
     await callStructured(TestSchema, { system: 's', userContent: 'u', model: 'gpt-4o' });
     expect(receivedModel).toBe('gpt-4o');
+  });
+
+  it('uses provider specified by name', async () => {
+    registry.register(mockProvider('{"name":"from-named","value":99}', 'named-provider'));
+    const result = await callStructured(TestSchema, { system: 's', userContent: 'u', provider: 'named-provider' });
+    expect(result).toEqual({ name: 'from-named', value: 99 });
   });
 });
 
 describe('callRawText', () => {
   it('returns text from provider', async () => {
-    setProvider(mockProvider('Hello'));
+    setTestProvider(mockProvider('Hello'));
     const result = await callRawText({ system: 's', userContent: 'u' });
     expect(result.text).toBe('Hello');
   });
 
   it('passes allowedTools to provider', async () => {
     let receivedTools: string[] | undefined;
-    setProvider({
+    setTestProvider({
       name: 'spy',
-      call: async (opts) => { receivedTools = opts.allowedTools; return { text: 'ok', toolUsage: [] }; },
+      call: async (opts: LLMProviderCallOptions) => { receivedTools = opts.allowedTools; return { text: 'ok', toolUsage: [] }; },
     });
     await callRawText({ system: 's', userContent: 'u', allowedTools: ['WebFetch'] });
     expect(receivedTools).toEqual(['WebFetch']);
   });
 
   it('returns tool usage from provider', async () => {
-    setProvider({
+    setTestProvider({
       name: 'spy',
       call: async () => ({
         text: 'done',
@@ -107,9 +119,9 @@ describe('callRawText', () => {
 
   it('passes model to provider', async () => {
     let receivedModel: string | undefined;
-    setProvider({
+    setTestProvider({
       name: 'spy',
-      call: async (opts) => { receivedModel = opts.model; return { text: 'ok', toolUsage: [] }; },
+      call: async (opts: LLMProviderCallOptions) => { receivedModel = opts.model; return { text: 'ok', toolUsage: [] }; },
     });
     await callRawText({ system: 's', userContent: 'u', model: 'claude-haiku-4-5' });
     expect(receivedModel).toBe('claude-haiku-4-5');

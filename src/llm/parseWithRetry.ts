@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { log } from '@temporalio/activity';
 import type { ToolUsageRecord } from '../types/agents';
-import type { LLMProvider } from './provider';
-import { ClaudeAgentProvider } from './providers/claudeAgent';
+import { registry } from './providerRegistry';
 
 export interface LLMCallOptions {
+  provider?: string;
   model?: string;
   system: string;
   userContent: string;
@@ -14,20 +14,6 @@ export interface LLMCallOptions {
 export interface RawTextResult {
   text: string;
   toolUsage: ToolUsageRecord[];
-}
-
-// --- Provider management ---
-
-let currentProvider: LLMProvider = new ClaudeAgentProvider();
-
-/** Set the LLM provider. Pass undefined to reset to default (Claude Agent SDK). */
-export function setProvider(provider: LLMProvider): void {
-  currentProvider = provider ?? new ClaudeAgentProvider();
-}
-
-/** Get the current LLM provider. */
-export function getProvider(): LLMProvider {
-  return currentProvider;
 }
 
 // --- Public API ---
@@ -40,7 +26,8 @@ export async function callStructured<T extends z.ZodTypeAny>(
   schema: T,
   opts: LLMCallOptions,
 ): Promise<z.infer<T>> {
-  const { text: resultText } = await currentProvider.call({
+  const provider = registry.get(opts.provider);
+  const { text: resultText } = await provider.call({
     model: opts.model,
     system: opts.system,
     prompt:
@@ -81,7 +68,8 @@ export async function callStructured<T extends z.ZodTypeAny>(
  * Call the LLM and return plain text + tool usage records.
  */
 export async function callRawText(opts: LLMCallOptions): Promise<RawTextResult> {
-  return currentProvider.call({
+  const provider = registry.get(opts.provider);
+  return provider.call({
     model: opts.model,
     system: opts.system,
     prompt: opts.userContent,

@@ -609,6 +609,88 @@ describe('agenticWorkflow', () => {
     expect(plannerPrompts[1]).toContain('Missing error handling');
   }, 120_000);
 
+  it('passes agentConfig provider and model to each activity', async () => {
+    const received: Record<string, { model: string; provider?: string }> = {};
+
+    const activities: Activities = {
+      plannerActivity: async (req) => {
+        received.planner = { model: req.model, provider: req.provider };
+        return { plan: { planSummary: 'Plan', tasks: [makeTask({ id: randomUUID() })] } };
+      },
+      validatorActivity: async (req) => {
+        received.validator = { model: req.model, provider: req.provider };
+        return { result: { valid: true, issues: [] } };
+      },
+      executorActivity: async (req) => {
+        received.executor = { model: req.model, provider: req.provider };
+        return { taskId: req.task.id, result: 'done' };
+      },
+      reviewerActivity: async (req) => {
+        received.reviewer = { model: req.model, provider: req.provider };
+        return { taskId: req.task.id, passed: true, notes: 'ok' };
+      },
+      integratorActivity: async (req) => {
+        received.integrator = { model: req.model, provider: req.provider };
+        return { integratedResponse: 'integrated' };
+      },
+      integrationReviewerActivity: async (req) => {
+        received.integrationReviewer = { model: req.model, provider: req.provider };
+        return { passed: true, notes: 'ok', score: { completeness: 5, accuracy: 5, structure: 5, actionability: 5, overall: 5 }, strengths: [], improvements: [] };
+      },
+    };
+
+    await runWorkflow(activities, {
+      prompt: 'Test agentConfig',
+      model: 'default-model',
+      provider: 'default-provider',
+      agentConfig: {
+        planner: { provider: 'local-llm', model: 'qwen3-32b' },
+        executor: { provider: 'claude-agent', model: 'claude-sonnet-4-6' },
+        reviewer: { provider: 'local-llm' },
+      },
+    });
+
+    // Planner: overridden by agentConfig
+    expect(received.planner.provider).toBe('local-llm');
+    expect(received.planner.model).toBe('qwen3-32b');
+
+    // Validator: falls back to defaults
+    expect(received.validator.provider).toBe('default-provider');
+    expect(received.validator.model).toBe('default-model');
+
+    // Executor: overridden
+    expect(received.executor.provider).toBe('claude-agent');
+    expect(received.executor.model).toBe('claude-sonnet-4-6');
+
+    // Reviewer: provider overridden, model falls back to default
+    expect(received.reviewer.provider).toBe('local-llm');
+    expect(received.reviewer.model).toBe('default-model');
+
+    // Integrator: falls back to defaults
+    expect(received.integrator.provider).toBe('default-provider');
+    expect(received.integrator.model).toBe('default-model');
+
+    // IntegrationReviewer: falls back to defaults
+    expect(received.integrationReviewer.provider).toBe('default-provider');
+    expect(received.integrationReviewer.model).toBe('default-model');
+  }, 60_000);
+
+  it('uses default model when no agentConfig or model specified', async () => {
+    let plannerModel: string | undefined;
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async (req) => {
+        plannerModel = req.model;
+        return { plan: { planSummary: 'Plan', tasks: [makeTask({ id: randomUUID() })] } };
+      },
+    };
+
+    await runWorkflow(activities, { prompt: 'No config' });
+
+    expect(plannerModel).toBe('claude-opus-4-6');
+  }, 60_000);
+
   it('records activity events throughout the workflow', async () => {
     const taskQueue = `test-agentic-${randomUUID()}`;
 

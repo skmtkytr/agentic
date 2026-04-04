@@ -1,7 +1,7 @@
 import express, { Router } from 'express';
 import type { Client } from '@temporalio/client';
 import { agenticWorkflow, statusQuery } from '../workflows/agenticWorkflow';
-import type { WorkflowInput } from '../types/workflow';
+import type { AgentConfigMap, WorkflowInput } from '../types/workflow';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
@@ -22,9 +22,11 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
 
   api.post('/run', async (req, res) => {
     try {
-      const { prompt, model, maxParallelTasks, allowedTools, maxPipelineRetries, maxTaskRetries } = req.body as {
+      const { prompt, model, provider, agentConfig, maxParallelTasks, allowedTools, maxPipelineRetries, maxTaskRetries } = req.body as {
         prompt?: string;
         model?: string;
+        provider?: string;
+        agentConfig?: AgentConfigMap;
         maxParallelTasks?: number;
         allowedTools?: string[];
         maxPipelineRetries?: number;
@@ -38,9 +40,22 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
 
       const client = await getClient();
       const workflowId = `agentic-${randomUUID()}`;
+      // Merge default agent config from env with request
+      let mergedAgentConfig = agentConfig;
+      if (process.env.DEFAULT_AGENT_CONFIG) {
+        try {
+          const envConfig = JSON.parse(process.env.DEFAULT_AGENT_CONFIG) as AgentConfigMap;
+          mergedAgentConfig = { ...envConfig, ...agentConfig };
+        } catch {
+          // ignore invalid env config
+        }
+      }
+
       const input: WorkflowInput = {
         prompt,
         model: model ?? process.env.CLAUDE_MODEL ?? 'claude-opus-4-6',
+        provider,
+        agentConfig: mergedAgentConfig,
         maxParallelTasks: maxParallelTasks ?? 3,
         allowedTools,
         maxPipelineRetries: maxPipelineRetries ?? 0,
@@ -175,6 +190,22 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  api.get('/local-models', async (_req, res) => {
+    const baseURL = process.env.LOCAL_LLM_BASE_URL;
+    if (!baseURL) {
+      res.json([]);
+      return;
+    }
+    try {
+      const r = await fetch(`${baseURL}/v1/models`);
+      if (!r.ok) { res.json([]); return; }
+      const data = await r.json() as { data?: { id: string }[] };
+      res.json((data.data ?? []).map((m: { id: string }) => m.id));
+    } catch {
+      res.json([]);
     }
   });
 

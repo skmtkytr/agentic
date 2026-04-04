@@ -42,11 +42,75 @@
     { id: 'ToolSearch', label: 'ToolSearch', desc: 'ツール検索', icon: '🧰' },
   ] as const;
 
+  type AgentRole = 'planner' | 'validator' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
+  interface AgentLLMConfig { provider?: string; model?: string; }
+
+  const AGENT_ROLES: { role: AgentRole; label: string; icon: string; needsTools: boolean }[] = [
+    { role: 'planner', label: 'Planner', icon: '🧠', needsTools: false },
+    { role: 'validator', label: 'Validator', icon: '🔍', needsTools: false },
+    { role: 'executor', label: 'Executor', icon: '⚡', needsTools: true },
+    { role: 'reviewer', label: 'Reviewer', icon: '📋', needsTools: false },
+    { role: 'integrator', label: 'Integrator', icon: '🔗', needsTools: false },
+    { role: 'integrationReviewer', label: 'Final Review', icon: '✅', needsTools: false },
+  ];
+
+  const PROVIDERS = [
+    { id: 'claude-agent', label: 'Claude (Agent SDK)', hasTools: true },
+    { id: 'local-llm', label: 'Local LLM (Agent)', hasTools: true },
+    { id: 'local-llm-direct', label: 'Local LLM (Direct)', hasTools: false },
+    { id: 'anthropic-api', label: 'Anthropic API', hasTools: false },
+  ];
+
+  const MODELS: Record<string, { id: string; label: string }[]> = {
+    'claude-agent': [
+      { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+    ],
+    'anthropic-api': [
+      { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+    ],
+    'local-llm': [],  // populated dynamically
+  };
+
   let prompt = $state('');
-  let model = $state('claude-opus-4-6');
+  let defaultProvider = $state('claude-agent');
+  let defaultModel = $state('claude-opus-4-6');
+  let agentConfig = $state<Partial<Record<AgentRole, AgentLLMConfig>>>({});
+  let showAgentConfig = $state(false);
+  let localModels = $state<string[]>([]);
   let maxRetries = $state(0);
   let maxTaskRetries = $state(0);
   let enabledTools = $state<Set<string>>(new Set());
+
+  // Fetch local LLM models on mount
+  async function fetchLocalModels() {
+    try {
+      const r = await fetch('/api/local-models');
+      if (r.ok) { localModels = await r.json(); }
+    } catch {}
+  }
+
+  function getModelsForProvider(provider: string) {
+    if (provider === 'local-llm') return localModels.map(m => ({ id: m, label: m }));
+    return MODELS[provider] ?? [];
+  }
+
+  function getAgentProvider(role: AgentRole): string { return agentConfig[role]?.provider ?? defaultProvider; }
+  function getAgentModel(role: AgentRole): string { return agentConfig[role]?.model ?? defaultModel; }
+
+  function setAgentProvider(role: AgentRole, provider: string) {
+    const cur = { ...agentConfig };
+    cur[role] = { ...cur[role], provider, model: undefined };
+    agentConfig = cur;
+  }
+  function setAgentModel(role: AgentRole, model: string) {
+    const cur = { ...agentConfig };
+    cur[role] = { ...cur[role], model };
+    agentConfig = cur;
+  }
   let workflowId = $state<string | null>(null);
   let workflowPrompt = $state<string | null>(null);
   let wfState = $state<WorkflowState | null>(null);
@@ -83,7 +147,22 @@
   function scrollEventLog() { if(eventLogEl)eventLogEl.scrollTop=eventLogEl.scrollHeight; }
   async function submit() {
     if(!prompt.trim()||loading)return; loading=true;error=null;wfState=null;result=null;workflowId=null;workflowPrompt=prompt.trim();
-    try { const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt.trim(),model,allowedTools:enabledTools.size>0?[...enabledTools]:undefined,maxPipelineRetries:maxRetries||undefined,maxTaskRetries:maxTaskRetries||undefined})}); if(!r.ok){const b=await r.json().catch(()=>({}));throw new Error((b as any).error??r.statusText);} const{workflowId:id}=await r.json();workflowId=id;setHash(id);connectSse(id);loadHistory(); } catch(e){error=(e as Error).message;loading=false;}
+    try {
+      // Build agentConfig only with overridden roles
+      const configPayload = Object.keys(agentConfig).length > 0 ? agentConfig : undefined;
+      const body: Record<string, unknown> = {
+        prompt: prompt.trim(),
+        model: defaultModel,
+        provider: defaultProvider,
+        allowedTools: enabledTools.size > 0 ? [...enabledTools] : undefined,
+        maxPipelineRetries: maxRetries || undefined,
+        maxTaskRetries: maxTaskRetries || undefined,
+      };
+      if (configPayload) body.agentConfig = configPayload;
+      const r = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error((b as any).error ?? r.statusText); }
+      const { workflowId: id } = await r.json(); workflowId = id; setHash(id); connectSse(id); loadHistory();
+    } catch(e) { error = (e as Error).message; loading = false; }
   }
   async function fetchResult(id: string) {
     try { const r=await fetch(`/api/result/${id}`);if(!r.ok)throw new Error(r.statusText);result=await r.json();if(!wfState)wfState={phase:'complete',totalTasks:result!.tasks.length,completedTasks:result!.tasks.length,currentlyExecuting:[],events:[],tasks:result!.tasks}; } catch(e){error=(e as Error).message;} finally{loading=false;}
@@ -168,7 +247,7 @@
   function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;loading=false;expandedTasks=new Set();setHash(null); }
   function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
 
-  onMount(()=>{loadHistory();syncHashToState();window.addEventListener('hashchange',syncHashToState);return()=>window.removeEventListener('hashchange',syncHashToState);});
+  onMount(()=>{loadHistory();fetchLocalModels();syncHashToState();window.addEventListener('hashchange',syncHashToState);return()=>window.removeEventListener('hashchange',syncHashToState);});
 </script>
 
 {#if sidebarOpen}
@@ -227,11 +306,18 @@
           <textarea bind:value={prompt} rows={4} placeholder="タスクを入力してください..." disabled={loading}></textarea>
           <div class="input-footer">
             <div class="input-options">
-              <select bind:value={model} disabled={loading}>
-                <option value="claude-opus-4-6">Opus 4.6</option>
-                <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-                <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-              </select>
+              <div class="default-config">
+                <label class="config-label">Default</label>
+                <select bind:value={defaultProvider} disabled={loading} onchange={() => { defaultModel = getModelsForProvider(defaultProvider)[0]?.id ?? ''; }}>
+                  {#each PROVIDERS as p}<option value={p.id}>{p.label}</option>{/each}
+                </select>
+                <select bind:value={defaultModel} disabled={loading}>
+                  {#each getModelsForProvider(defaultProvider) as m}<option value={m.id}>{m.label}</option>{/each}
+                </select>
+              </div>
+              <button class="pill" class:active={showAgentConfig} onclick={() => showAgentConfig = !showAgentConfig} disabled={loading}>
+                Agent設定
+              </button>
               <div class="retry-input">
                 <label for="retries">全体リトライ</label>
                 <select id="retries" bind:value={maxRetries} disabled={loading}>
@@ -258,6 +344,35 @@
               {loading?'実行中...':'実行'}
             </button>
           </div>
+
+          {#if showAgentConfig}
+            <div class="agent-config-panel">
+              <div class="agent-config-header">
+                <span>エージェント別設定</span>
+                <button class="pill small" onclick={() => { agentConfig = {}; }}>リセット</button>
+              </div>
+              <div class="agent-config-grid">
+                {#each AGENT_ROLES as { role, label, icon, needsTools }}
+                  {@const prov = getAgentProvider(role)}
+                  {@const models = getModelsForProvider(prov)}
+                  <div class="agent-config-row" class:has-override={!!agentConfig[role]}>
+                    <span class="agent-role-label">{icon} {label}</span>
+                    <select value={prov} disabled={loading}
+                      onchange={(e) => setAgentProvider(role, (e.target as HTMLSelectElement).value)}>
+                      {#each PROVIDERS as p}
+                        <option value={p.id}>{p.label}{needsTools && !p.hasTools ? ' (tools N/A)' : ''}</option>
+                      {/each}
+                    </select>
+                    <select value={getAgentModel(role)} disabled={loading}
+                      onchange={(e) => setAgentModel(role, (e.target as HTMLSelectElement).value)}>
+                      {#each models as m}<option value={m.id}>{m.label}</option>{/each}
+                      {#if models.length === 0}<option value="">-</option>{/if}
+                    </select>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <div class="card tools-card">
@@ -948,4 +1063,15 @@
     .hero h1 { font-size:1.4rem; }
     .metrics { grid-template-columns:repeat(2,1fr); }
   }
+  /* Agent config panel */
+  .default-config { display: flex; align-items: center; gap: 6px; }
+  .config-label { font-size: .75rem; color: var(--muted); font-weight: 600; }
+  .agent-config-panel { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
+  .agent-config-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: .85rem; font-weight: 600; }
+  .agent-config-grid { display: flex; flex-direction: column; gap: 6px; }
+  .agent-config-row { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 8px; align-items: center; padding: 4px 8px; border-radius: 6px; background: var(--bg); }
+  .agent-config-row.has-override { background: color-mix(in srgb, var(--purple) 10%, var(--bg)); }
+  .agent-role-label { font-size: .8rem; font-weight: 500; white-space: nowrap; }
+  .agent-config-row select { font-size: .8rem; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg); }
+  .pill.small { font-size: .7rem; padding: 2px 8px; }
 </style>

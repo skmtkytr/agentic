@@ -4,9 +4,10 @@ import { TaskPlanSchema } from '../types/schemas';
 import type { PlannerRequest, PlannerResponse } from '../types/agents';
 
 export async function plannerActivity(req: PlannerRequest): Promise<PlannerResponse> {
-  log.info('Planner started', { promptLength: req.prompt.length });
+  log.info('Planner started', { promptLength: req.prompt.length, provider: req.provider ?? 'default', model: req.model });
 
   const parsed = await callStructured(TaskPlanSchema, {
+    provider: req.provider,
     model: req.model,
     system: `あなたはプランニングエージェントです。ユーザーのリクエストを、有向非巡回グラフ（DAG）を構成する個別の実行可能タスクに分解してください。
 

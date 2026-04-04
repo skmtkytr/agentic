@@ -9,9 +9,20 @@ export type WorkflowPhase =
   | 'complete'
   | 'failed';
 
+export type AgentRole = 'planner' | 'validator' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
+
+export interface AgentLLMConfig {
+  provider?: string;
+  model?: string;
+}
+
+export type AgentConfigMap = Partial<Record<AgentRole, AgentLLMConfig>>;
+
 export interface WorkflowInput {
   prompt: string;
   model?: string;
+  provider?: string;
+  agentConfig?: AgentConfigMap;
   maxParallelTasks?: number;
   allowedTools?: string[];
   maxPipelineRetries?: number;

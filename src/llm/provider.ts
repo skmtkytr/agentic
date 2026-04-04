@@ -8,6 +8,9 @@ export interface LLMProvider {
   /** Provider name for logging */
   readonly name: string;
 
+  /** Whether this provider supports tool use (e.g. Read, Bash, WebFetch). Default: false */
+  readonly supportsTools?: boolean;
+
   /**
    * Call the LLM and return plain text + tool usage records.
    * This is the core method that all providers must implement.
