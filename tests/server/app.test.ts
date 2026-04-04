@@ -8,6 +8,8 @@ jest.mock('../../src/workflows/agenticWorkflow', () => ({
 
 import { createApp } from '../../src/server/app';
 import type { Client } from '@temporalio/client';
+import { WorkflowFailedError } from '@temporalio/client';
+import { RetryState } from '@temporalio/common';
 
 // --- Mock Temporal Client factory ---
 
@@ -112,7 +114,8 @@ describe('Server API', () => {
         .post('/api/run')
         .send({ prompt: 'My test prompt' });
 
-      expect(startFn.mock.calls[0][1].memo).toEqual({ prompt: 'My test prompt' });
+      expect(startFn.mock.calls[0][1].memo.prompt).toBe('My test prompt');
+      expect(startFn.mock.calls[0][1].memo.model).toBe('claude-opus-4-6');
     });
 
     it('passes allowedTools to workflow input', async () => {
@@ -328,7 +331,7 @@ describe('Server API', () => {
             startTime: new Date('2026-03-31T10:00:00Z'),
             closeTime: new Date('2026-03-31T10:05:00Z'),
           }),
-          query: async () => ({ phase: 'complete' }),
+          query: async () => ({ phase: 'complete', totalTasks: 2, completedTasks: 2, currentlyExecuting: [], events: [], tasks: [] }),
         }),
       });
       const { app } = createApp(async () => mockClient);
@@ -341,6 +344,65 @@ describe('Server API', () => {
       expect(res.body.phase).toBe('complete');
       expect(res.body.startTime).toBe('2026-03-31T10:00:00.000Z');
       expect(res.body.closeTime).toBe('2026-03-31T10:05:00.000Z');
+    });
+
+    it('returns state from query for completed workflow', async () => {
+      const mockState = { phase: 'complete', totalTasks: 2, completedTasks: 2, currentlyExecuting: [], events: [{ kind: 'planner_done', timestamp: 1000, summary: 'done' }], tasks: [{ id: 't1', description: 'Task 1', dependsOn: [], status: 'reviewed', reviewPassed: true }] };
+      const mockResult = { finalResponse: 'Hello', integrationReviewPassed: true, integrationReviewNotes: 'ok', tasks: [], executionTimeMs: 500 };
+      const mockClient = makeMockClient({
+        getHandle: () => makeMockHandle({
+          describe: async () => ({
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            closeTime: new Date('2026-03-31T10:05:00Z'),
+          }),
+          query: async () => mockState,
+          result: async () => mockResult,
+        }),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflow/agentic-test-1');
+
+      expect(res.body.state).toEqual(mockState);
+      expect(res.body.result).toEqual(mockResult);
+    });
+
+    it('returns state from query for failed workflow', async () => {
+      const mockState = {
+        phase: 'executing',
+        totalTasks: 3,
+        completedTasks: 1,
+        currentlyExecuting: ['t2'],
+        events: [
+          { kind: 'planner_done', timestamp: 1000, summary: 'プラン生成完了' },
+          { kind: 'executor_start', timestamp: 2000, taskId: 't2', summary: '実行開始: タスク2' },
+        ],
+        tasks: [
+          { id: 't1', description: 'Task 1', dependsOn: [], status: 'reviewed', reviewPassed: true },
+          { id: 't2', description: 'Task 2', dependsOn: [], status: 'executing', reviewPassed: false },
+        ],
+      };
+      const mockClient = makeMockClient({
+        getHandle: () => makeMockHandle({
+          describe: async () => ({
+            status: { name: 'FAILED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            closeTime: new Date('2026-03-31T10:01:00Z'),
+          }),
+          query: async () => mockState,
+        }),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflow/agentic-failed');
+
+      expect(res.body.status).toBe('FAILED');
+      expect(res.body.phase).toBe('executing');
+      expect(res.body.state).toEqual(mockState);
+      expect(res.body.state.events).toHaveLength(2);
+      expect(res.body.state.tasks).toHaveLength(2);
+      expect(res.body.result).toBeNull();
     });
 
     it('falls back to status-based phase when query fails', async () => {
@@ -359,6 +421,7 @@ describe('Server API', () => {
       const res = await request(app).get('/api/workflow/agentic-failed');
 
       expect(res.body.phase).toBe('failed');
+      expect(res.body.state).toBeNull();
     });
 
     it('returns RUNNING phase for running workflow when query fails', async () => {
@@ -378,6 +441,69 @@ describe('Server API', () => {
 
       expect(res.body.phase).toBe('running');
       expect(res.body.closeTime).toBeNull();
+    });
+
+    it('returns result only for completed workflows, not failed', async () => {
+      const mockClient = makeMockClient({
+        getHandle: () => makeMockHandle({
+          describe: async () => ({
+            status: { name: 'FAILED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            closeTime: new Date('2026-03-31T10:01:00Z'),
+          }),
+          query: async () => ({ phase: 'failed', totalTasks: 0, completedTasks: 0, currentlyExecuting: [], events: [], tasks: [] }),
+          result: async () => { throw new Error('Workflow failed'); },
+        }),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflow/agentic-failed');
+
+      expect(res.body.result).toBeNull();
+    });
+
+    it('returns failureMessage from WorkflowFailedError for failed workflow', async () => {
+      const rootCause = new Error('Task design failed: circular dependency detected');
+      const activityFailure = new Error('Activity task failed');
+      activityFailure.cause = rootCause;
+      const wfError = new WorkflowFailedError('Workflow execution failed', activityFailure, RetryState.RETRY_STATE_NON_RETRYABLE_FAILURE);
+      const mockClient = makeMockClient({
+        getHandle: () => makeMockHandle({
+          describe: async () => ({
+            status: { name: 'FAILED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            closeTime: new Date('2026-03-31T10:01:00Z'),
+          }),
+          query: async () => ({ phase: 'designing', totalTasks: 0, completedTasks: 0, currentlyExecuting: [], events: [{ kind: 'designer_start', timestamp: 1000, summary: 'タスク設計開始' }], tasks: [] }),
+          result: async () => { throw wfError; },
+        }),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflow/agentic-failed');
+
+      expect(res.body.status).toBe('FAILED');
+      expect(res.body.failureMessage).toBe('Task design failed: circular dependency detected');
+      expect(res.body.state).not.toBeNull();
+      expect(res.body.result).toBeNull();
+    });
+
+    it('returns failureMessage null for completed workflow', async () => {
+      const mockClient = makeMockClient({
+        getHandle: () => makeMockHandle({
+          describe: async () => ({
+            status: { name: 'COMPLETED' },
+            startTime: new Date('2026-03-31T10:00:00Z'),
+            closeTime: new Date('2026-03-31T10:05:00Z'),
+          }),
+          query: async () => ({ phase: 'complete', totalTasks: 1, completedTasks: 1, currentlyExecuting: [], events: [], tasks: [] }),
+        }),
+      });
+      const { app } = createApp(async () => mockClient);
+
+      const res = await request(app).get('/api/workflow/agentic-test');
+
+      expect(res.body.failureMessage).toBeNull();
     });
 
     it('returns 404 when workflow does not exist', async () => {

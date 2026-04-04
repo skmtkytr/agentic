@@ -111,8 +111,10 @@
     cur[role] = { ...cur[role], model };
     agentConfig = cur;
   }
+  interface WorkflowConfig { model?: string; provider?: string; allowedTools?: string[]; agentConfig?: Partial<Record<AgentRole, AgentLLMConfig>>; maxPipelineRetries?: number; maxTaskRetries?: number; }
   let workflowId = $state<string | null>(null);
   let workflowPrompt = $state<string | null>(null);
+  let workflowConfig = $state<WorkflowConfig | null>(null);
   let wfState = $state<WorkflowState | null>(null);
   let result = $state<WorkflowResult | null>(null);
   let error = $state<string | null>(null);
@@ -134,18 +136,23 @@
     try {
       const r = await fetch(`/api/workflow/${id}`); if (!r.ok) { error = 'Workflow not found'; loading = false; return; }
       const d = await r.json();
-      if (d.status === 'COMPLETED') await fetchResult(id);
-      else if (d.status === 'RUNNING') connectSse(id);
+      if (d.prompt && !workflowPrompt) workflowPrompt = d.prompt;
+      if (d.config) workflowConfig = d.config;
+      if (d.status === 'COMPLETED') {
+        // Use state from query for event log, and result for final output
+        if (d.state) wfState = d.state;
+        if (d.result) { result = d.result; if (!wfState) wfState = { phase: 'complete', totalTasks: d.result.tasks.length, completedTasks: d.result.tasks.length, currentlyExecuting: [], events: [], tasks: d.result.tasks }; }
+        else await fetchResult(id);
+        loading = false;
+      } else if (d.status === 'RUNNING') connectSse(id);
       else if (d.status === 'FAILED') {
-        // Try to get events for failure details
-        try {
-          const sr = await fetch(`/api/workflow/${id}`);
-          const sd = await sr.json();
-          // Try query for events
-          const qr = await fetch(`/api/status/${id}`);
-          // SSE won't work for completed workflows, just show phase
-          error = `Workflow failed (phase: ${sd.phase ?? 'unknown'})`;
-        } catch { error = 'Workflow failed'; }
+        if (d.state) {
+          wfState = { ...d.state, phase: 'failed' };
+        }
+        const failedAt = d.state?.phase ?? d.phase ?? 'unknown';
+        error = d.failureMessage
+          ? `Workflow failed at ${failedAt}: ${d.failureMessage}`
+          : `Workflow failed (phase: ${failedAt})`;
         loading = false;
       } else { error = `Status: ${d.status}`; loading = false; }
     } catch (e) { error = (e as Error).message; loading = false; }
@@ -258,7 +265,21 @@
     downloadBlobAs(result.finalResponse, `${workflowId?.replace('agentic-', '').slice(0, 8) ?? 'result'}.md`);
   }
 
-  function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;loading=false;expandedTasks=new Set();setHash(null); }
+  function goHome() { if(currentSse){currentSse.close();currentSse=null;} workflowId=null;wfState=null;result=null;error=null;workflowPrompt=null;workflowConfig=null;loading=false;expandedTasks=new Set();setHash(null); }
+  function retryWithSamePrompt() {
+    const p = workflowPrompt;
+    const cfg = workflowConfig;
+    goHome();
+    if (p) prompt = p;
+    if (cfg) {
+      if (cfg.provider) defaultProvider = cfg.provider;
+      if (cfg.model) defaultModel = cfg.model;
+      if (cfg.allowedTools) enabledTools = new Set(cfg.allowedTools);
+      if (cfg.agentConfig) agentConfig = cfg.agentConfig;
+      if (cfg.maxPipelineRetries != null) maxRetries = cfg.maxPipelineRetries;
+      if (cfg.maxTaskRetries != null) maxTaskRetries = cfg.maxTaskRetries;
+    }
+  }
   function passRate() { if(!result)return 0; return result.tasks.length>0?Math.round(result.tasks.filter(t=>t.reviewPassed).length/result.tasks.length*100):0; }
 
   onMount(()=>{loadHistory();fetchLocalModels();syncHashToState();window.addEventListener('hashchange',syncHashToState);return()=>window.removeEventListener('hashchange',syncHashToState);});
@@ -431,6 +452,8 @@
             <div class="prompt-display-text">{workflowPrompt}</div>
           </details>
         {/if}
+
+        {#if error}<div class="card error-card">{error}</div>{/if}
 
         {#if wfState}
           <!-- 2-column grid: left=pipeline+metrics, right=tasks+log -->
@@ -707,10 +730,21 @@
               {/if}
             </div>
           {/if}
-          <button class="run-btn full" onclick={goHome}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            新しいタスク
-          </button>
+        {/if}
+
+        {#if result || error}
+          <div class="wf-bottom-actions">
+            {#if error && workflowPrompt}
+              <button class="run-btn full" onclick={retryWithSamePrompt}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7a6 6 0 0111.2-3M13 7a6 6 0 01-11.2 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12.2 1v3h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                同じプロンプトでリトライ
+              </button>
+            {/if}
+            <button class="run-btn full secondary" onclick={goHome}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              新しいタスク
+            </button>
+          </div>
         {/if}
       </div>
     {/if}
@@ -803,6 +837,9 @@
   .run-btn:active:not(:disabled) { transform:translateY(0); }
   .run-btn:disabled { opacity:0.4; cursor:not-allowed; }
   .run-btn.full { width:100%; justify-content:center; margin-top:1rem; }
+  .run-btn.secondary { background:var(--bg3); border:1px solid var(--border); color:var(--text2); }
+  .run-btn.secondary:hover:not(:disabled) { background:var(--bg4); color:var(--text); }
+  .wf-bottom-actions { display:flex; flex-direction:column; gap:0.5rem; margin-top:1.5rem; }
 
   /* Tools card */
   .tools-card { padding:0; }

@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import type { Client } from '@temporalio/client';
+import { WorkflowFailedError } from '@temporalio/client';
 import { agenticWorkflow, statusQuery } from '../workflows/agenticWorkflow';
 import type { AgentConfigMap, WorkflowInput } from '../types/workflow';
 import { randomUUID } from 'node:crypto';
@@ -79,7 +80,15 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         taskQueue: 'agentic-pipeline',
         workflowId,
         args: [input],
-        memo: { prompt },
+        memo: {
+          prompt,
+          model: input.model,
+          provider: input.provider,
+          allowedTools: input.allowedTools,
+          agentConfig: input.agentConfig,
+          maxPipelineRetries: input.maxPipelineRetries,
+          maxTaskRetries: input.maxTaskRetries,
+        },
       });
 
       knownWorkflows.unshift({
@@ -136,14 +145,39 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
       const handle = client.workflow.getHandle(id);
       const desc = await handle.describe();
       let phase: string = 'unknown';
+      let state: Record<string, unknown> | null = null;
       try {
-        const state = await handle.query(statusQuery);
-        phase = state.phase;
+        const queried = await handle.query(statusQuery);
+        phase = queried.phase;
+        state = queried as unknown as Record<string, unknown>;
       } catch {
         if (desc.status.name === 'COMPLETED') phase = 'complete';
         else if (desc.status.name === 'FAILED') phase = 'failed';
         else if (desc.status.name === 'RUNNING') phase = 'running';
       }
+
+      let result: Record<string, unknown> | null = null;
+      let failureMessage: string | null = null;
+      if (desc.status.name === 'COMPLETED') {
+        try { result = await handle.result(); } catch { /* ignore */ }
+      } else if (desc.status.name === 'FAILED') {
+        try {
+          await handle.result();
+        } catch (err) {
+          // Walk the cause chain to find the root cause message
+          let deepest: Error | undefined;
+          if (err instanceof WorkflowFailedError) {
+            deepest = err.cause as Error | undefined;
+            while (deepest && 'cause' in deepest && deepest.cause instanceof Error) {
+              deepest = deepest.cause;
+            }
+          }
+          failureMessage = deepest?.message ?? (err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      const memo = desc.memo as Record<string, unknown> | undefined;
+      const prompt = (memo?.prompt as string | undefined) ?? knownWorkflows.find((w) => w.workflowId === id)?.prompt;
 
       res.json({
         workflowId: id,
@@ -151,6 +185,18 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         phase,
         startTime: desc.startTime.toISOString(),
         closeTime: desc.closeTime?.toISOString() ?? null,
+        prompt,
+        config: {
+          model: memo?.model as string | undefined,
+          provider: memo?.provider as string | undefined,
+          allowedTools: memo?.allowedTools as string[] | undefined,
+          agentConfig: memo?.agentConfig as Record<string, unknown> | undefined,
+          maxPipelineRetries: memo?.maxPipelineRetries as number | undefined,
+          maxTaskRetries: memo?.maxTaskRetries as number | undefined,
+        },
+        state,
+        result,
+        failureMessage,
       });
     } catch {
       res.status(404).json({ error: `Workflow not found: ${req.params.id}` });
