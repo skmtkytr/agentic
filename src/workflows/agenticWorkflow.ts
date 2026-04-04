@@ -109,9 +109,9 @@ async function executeDag(
             result,
           }));
 
-          // On retry, include previous review feedback in the task description context
+          // On retry, include structured review feedback for executor
           const retryContext = taskAttempt > 1
-            ? `\n\n[前回の実行がレビューで却下されました。フィードバック: ${lastReviewNotes}]`
+            ? `\n\n[前回の実行がレビューで却下されました（試行${taskAttempt - 1}）]\nレビュー���摘: ${lastReviewNotes}\n上記の指摘を踏まえて、改善した結果を出力してください。特に指摘された具体的なアクションを実行してください。`
             : '';
 
           const execResult = await executorActivity({
