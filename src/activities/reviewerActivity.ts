@@ -59,6 +59,6 @@ ${toolEvidenceSection}
     taskId: result.taskId || req.task.id,
     passed: result.passed,
     notes: result.notes,
-    revisedResult: result.revisedResult,
+    revisedResult: result.revisedResult ?? undefined,
   };
 }

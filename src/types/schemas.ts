@@ -29,10 +29,10 @@ export const TaskDesignResultSchema = z.object({
 });
 
 export const ReviewerResultSchema = z.object({
-  taskId: z.string(),
+  taskId: z.string().nullish(),
   passed: z.boolean(),
   notes: z.string(),
-  revisedResult: z.string().optional(),
+  revisedResult: z.string().nullish(),
 });
 
 export const IntegrationReviewerResultSchema = z.object({
@@ -47,5 +47,5 @@ export const IntegrationReviewerResultSchema = z.object({
   }),
   strengths: z.array(z.string()).default([]),
   improvements: z.array(z.string()).default([]),
-  revisedResponse: z.string().optional(),
+  revisedResponse: z.string().nullish(),
 });

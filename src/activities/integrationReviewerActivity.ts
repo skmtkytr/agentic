@@ -88,5 +88,8 @@ ${toolEvidenceSection}`,
   });
 
   log.info('Integration reviewer completed', { passed: result.passed });
-  return result;
+  return {
+    ...result,
+    revisedResponse: result.revisedResponse ?? undefined,
+  };
 }

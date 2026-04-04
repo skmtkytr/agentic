@@ -186,9 +186,9 @@ describe('ReviewerResultSchema', () => {
     expect(result.revisedResult).toBe('better version');
   });
 
-  it('rejects missing taskId', () => {
+  it('accepts missing taskId (optional, filled by activity)', () => {
     const result = ReviewerResultSchema.safeParse({ passed: true, notes: 'ok' });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('rejects missing notes', () => {
