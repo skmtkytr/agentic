@@ -1,21 +1,26 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
-import type { ExecutorResponse, ToolUsageRecord } from '../../src/types/agents';
+import type { ExecutorResponse } from '../../src/types/agents';
 import type { Task } from '../../src/types/task';
+import type { LLMCallOptions, RawTextResult } from '../../src/llm/parseWithRetry';
 
-jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: jest.fn(),
+// Mock callRawText at the parseWithRetry module level
+jest.mock('../../src/llm/parseWithRetry', () => ({
+  callRawText: jest.fn(),
 }));
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
-const mockQuery = query as jest.MockedFunction<typeof query>;
+// Mock artifactStore to avoid filesystem side effects
+jest.mock('../../src/activities/artifactStore', () => ({
+  writeTaskResult: jest.fn().mockResolvedValue('/tmp/agentic/mock/result.md'),
+  writeToolEvidence: jest.fn().mockResolvedValue('/tmp/agentic/mock/evidence.md'),
+}));
 
-function setupQueryMock(resultText: string) {
-  mockQuery.mockImplementation(async function* () {
-    yield { result: resultText } as never;
-  } as any);
-}
-
+import { callRawText } from '../../src/llm/parseWithRetry';
+import { writeTaskResult, writeToolEvidence } from '../../src/activities/artifactStore';
 import { executorActivity } from '../../src/activities/executorActivity';
+
+const mockCallRawText = callRawText as jest.MockedFunction<typeof callRawText>;
+const mockWriteTaskResult = writeTaskResult as jest.MockedFunction<typeof writeTaskResult>;
+const mockWriteToolEvidence = writeToolEvidence as jest.MockedFunction<typeof writeToolEvidence>;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -28,274 +33,303 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+function setupMock(text: string, toolUsage: RawTextResult['toolUsage'] = []) {
+  mockCallRawText.mockResolvedValue({ text, toolUsage });
+}
+
 describe('executorActivity', () => {
   const env = new MockActivityEnvironment();
 
-  beforeEach(() => mockQuery.mockReset());
+  beforeEach(() => {
+    mockCallRawText.mockReset();
+    mockWriteTaskResult.mockReset().mockResolvedValue('/tmp/agentic/mock/result.md');
+    mockWriteToolEvidence.mockReset().mockResolvedValue('/tmp/agentic/mock/evidence.md');
+  });
 
-  it('executes a task and returns the result', async () => {
-    setupQueryMock('function add(a, b) { return a + b; }');
+  // --- callRawText argument verification ---
+
+  it('calls callRawText with correct provider and model', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'claude-sonnet-4-6',
+      provider: 'local-llm',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.provider).toBe('local-llm');
+    expect(opts.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('passes allowedTools to callRawText', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Fetch data',
+      model: 'test',
+      allowedTools: ['WebFetch', 'Bash'],
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.allowedTools).toEqual(['WebFetch', 'Bash']);
+  });
+
+  it('does not pass allowedTools when not specified', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Simple',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.allowedTools).toBeUndefined();
+  });
+
+  // --- System prompt construction ---
+
+  it('includes tool instruction when allowedTools present', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      allowedTools: ['WebFetch'],
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('WebFetch');
+    expect(opts.system).toContain('ツールを使わずに推測やハルシネーション');
+  });
+
+  it('includes no-tool warning when allowedTools absent', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('外部ツールは使用できません');
+  });
+
+  it('includes completed task context in system prompt', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask({ id: 'task-2', description: 'Step 2' }),
+      completedTaskResults: [
+        { taskId: 'task-1', description: 'Step 1', result: 'step 1 output' },
+      ],
+      originalPrompt: 'Multi-step',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('step 1 output');
+    expect(opts.system).toContain('[Step 1]');
+  });
+
+  it('includes planContext.userIntent in system prompt', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      planContext: { userIntent: 'Investment analysis', qualityGuidelines: 'Use real-time data' },
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('Investment analysis');
+    expect(opts.system).toContain('Use real-time data');
+  });
+
+  it('omits planContext sections when not provided', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).not.toContain('ユーザーの意図');
+    expect(opts.system).not.toContain('品質指針');
+  });
+
+  // --- userContent construction ---
+
+  it('includes task guidance in userContent when present', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask({
+        purpose: 'Get price data',
+        successCriteria: ['From CoinGecko', 'Include JPY'],
+        outputFormat: 'Markdown table',
+      }),
+      completedTaskResults: [],
+      originalPrompt: 'Get ETH price',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('目的: Get price data');
+    expect(opts.userContent).toContain('- From CoinGecko');
+    expect(opts.userContent).toContain('- Include JPY');
+    expect(opts.userContent).toContain('出力形式: Markdown table');
+  });
+
+  it('omits task guidance section when no guidance fields', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).not.toContain('タスク固有の指針');
+  });
+
+  it('includes originalPrompt and task description in userContent', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask({ description: 'Analyze market trends' }),
+      completedTaskResults: [],
+      originalPrompt: 'Give me a market report',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('Give me a market report');
+    expect(opts.userContent).toContain('Analyze market trends');
+  });
+
+  // --- Result handling ---
+
+  it('returns taskId and result text', async () => {
+    setupMock('function add(a, b) { return a + b; }');
 
     const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
       originalPrompt: 'Create a calculator',
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ExecutorResponse;
 
     expect(result.taskId).toBe('task-1');
     expect(result.result).toBe('function add(a, b) { return a + b; }');
   });
 
-  it('includes completed task context in system prompt', async () => {
-    setupQueryMock('step 2 result');
-
-    await env.run(executorActivity, {
-      task: makeTask({ id: 'task-2', description: 'Step 2' }),
-      completedTaskResults: [
-        { taskId: 'task-1', description: 'Step 1', result: 'step 1 result' },
-      ],
-      originalPrompt: 'Multi-step task',
-      model: 'claude-opus-4-6',
-    });
-
-    const callArgs = mockQuery.mock.calls[0][0];
-    expect(callArgs.options?.systemPrompt).toContain('step 1 result');
-    expect(callArgs.options?.systemPrompt).toContain('[Step 1]');
-  });
-
-  it('passes allowedTools to query options', async () => {
-    setupQueryMock('result with tools');
-
-    await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Fetch data',
-      model: 'claude-opus-4-6',
-      allowedTools: ['WebFetch', 'Bash'],
-    });
-
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts?.allowedTools).toEqual(['WebFetch', 'Bash']);
-    expect(opts?.permissionMode).toBe('dontAsk');
-  });
-
-  it('uses tools: [] when allowedTools not specified', async () => {
-    setupQueryMock('result without tools');
-
-    await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Simple task',
-      model: 'claude-opus-4-6',
-    });
-
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts?.tools).toEqual([]);
-    expect(opts).not.toHaveProperty('allowedTools');
-  });
-
-  it('extracts tool usage from query messages', async () => {
-    // Simulate query yielding tool_use and tool_result messages before result
-    mockQuery.mockImplementation(async function* () {
-      yield {
-        type: 'assistant',
-        message: {
-          content: [{
-            type: 'tool_use',
-            id: 'toolu_1',
-            name: 'WebFetch',
-            input: { url: 'https://api.example.com/data' },
-          }],
-        },
-      } as never;
-      yield {
-        type: 'user',
-        message: {
-          content: [{
-            type: 'tool_result',
-            tool_use_id: 'toolu_1',
-            content: '{"price": 2047}',
-          }],
-        },
-      } as never;
-      yield { result: 'ETH price is $2,047' } as never;
-    } as any);
+  it('returns toolUsage from callRawText', async () => {
+    setupMock('ETH = $2000', [
+      { tool: 'WebFetch', input: 'https://api.coingecko.com', output: '{"usd":2000}', timestamp: 1000 },
+    ]);
 
     const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
-      originalPrompt: 'Get ETH price',
-      model: 'claude-opus-4-6',
+      originalPrompt: 'Get ETH',
+      model: 'test',
       allowedTools: ['WebFetch'],
     })) as ExecutorResponse;
 
-    expect(result.result).toBe('ETH price is $2,047');
-    expect(result.toolUsage).toBeDefined();
     expect(result.toolUsage).toHaveLength(1);
     expect(result.toolUsage![0].tool).toBe('WebFetch');
-    expect(result.toolUsage![0].input).toBe('https://api.example.com/data');
-    expect(result.toolUsage![0].output).toBe('{"price": 2047}');
   });
 
-  it('returns empty toolUsage when no tools are used', async () => {
-    setupQueryMock('plain text result');
+  it('returns empty toolUsage when none used', async () => {
+    setupMock('plain result');
 
     const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
-      originalPrompt: 'Simple task',
-      model: 'claude-opus-4-6',
+      originalPrompt: 'Test',
+      model: 'test',
     })) as ExecutorResponse;
 
     expect(result.toolUsage).toEqual([]);
   });
 
-  it('writes result to file when workflowId is provided', async () => {
-    setupQueryMock('file-based result');
+  // --- File writing ---
+
+  it('calls writeTaskResult when workflowId is provided', async () => {
+    setupMock('file result');
 
     const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
       originalPrompt: 'Test',
-      model: 'claude-opus-4-6',
-      workflowId: 'test-wf-file',
+      model: 'test',
+      workflowId: 'wf-123',
     })) as ExecutorResponse;
 
-    expect(result.resultFilePath).toBeDefined();
-    expect(result.resultFilePath).toContain('test-wf-file');
-    expect(result.resultFilePath).toContain('result.md');
-
-    // Verify file exists and has correct content
-    const fs = require('fs');
-    expect(fs.existsSync(result.resultFilePath)).toBe(true);
-    expect(fs.readFileSync(result.resultFilePath, 'utf-8')).toBe('file-based result');
-
-    // Cleanup
-    fs.rmSync(result.resultFilePath!.split('/test-wf-file')[0] + '/test-wf-file', { recursive: true, force: true });
+    expect(mockWriteTaskResult).toHaveBeenCalledWith('wf-123', 'task-1', 'file result');
+    expect(result.resultFilePath).toBe('/tmp/agentic/mock/result.md');
   });
 
-  it('does not write file when workflowId is absent', async () => {
-    setupQueryMock('inline result');
+  it('calls writeToolEvidence when workflowId and toolUsage present', async () => {
+    const toolUsage = [{ tool: 'WebFetch', input: 'url', output: 'data', timestamp: 1 }];
+    setupMock('result', toolUsage);
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      workflowId: 'wf-123',
+      allowedTools: ['WebFetch'],
+    });
+
+    expect(mockWriteToolEvidence).toHaveBeenCalledWith('wf-123', 'task-1', toolUsage);
+  });
+
+  it('does not write files when workflowId absent', async () => {
+    setupMock('result');
 
     const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
       originalPrompt: 'Test',
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ExecutorResponse;
 
+    expect(mockWriteTaskResult).not.toHaveBeenCalled();
     expect(result.resultFilePath).toBeUndefined();
   });
 
-  it('returns empty string when no result', async () => {
-    mockQuery.mockImplementation(async function* () {
-      yield { type: 'system' } as never;
-    } as any);
-
-    const result = (await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Test',
-      model: 'claude-opus-4-6',
-    })) as ExecutorResponse;
-
-    expect(result.result).toBe('');
-  });
-
-  it('includes task guidance and planContext in prompt', async () => {
-    let receivedPrompt = '';
-    let receivedSystem = '';
-    mockQuery.mockImplementation(async function* (params: any) {
-      receivedPrompt = params.prompt;
-      receivedSystem = params.options?.systemPrompt ?? '';
-      yield { result: 'done' } as never;
-    } as any);
+  it('does not write evidence when no toolUsage', async () => {
+    setupMock('result');
 
     await env.run(executorActivity, {
-      task: makeTask({
-        purpose: 'Get reliable price data',
-        successCriteria: ['Use CoinGecko API', 'Include JPY'],
-        outputFormat: 'Markdown table',
-      }),
-      completedTaskResults: [],
-      originalPrompt: 'Get ETH price',
-      model: 'test',
-      planContext: {
-        userIntent: 'Investment decision',
-        qualityGuidelines: 'Real-time data required',
-      },
-    });
-
-    expect(receivedPrompt).toContain('目的: Get reliable price data');
-    expect(receivedPrompt).toContain('Use CoinGecko API');
-    expect(receivedPrompt).toContain('出力形式: Markdown table');
-    expect(receivedSystem).toContain('Investment decision');
-    expect(receivedSystem).toContain('Real-time data required');
-  });
-
-  it('works without planContext or task guidance', async () => {
-    setupQueryMock('result without guidance');
-
-    const result = (await env.run(executorActivity, {
       task: makeTask(),
       completedTaskResults: [],
       originalPrompt: 'Test',
       model: 'test',
-    })) as ExecutorResponse;
-
-    expect(result.result).toBe('result without guidance');
-  });
-
-  it('includes task guidance but no planContext', async () => {
-    let receivedPrompt = '';
-    let receivedSystem = '';
-    mockQuery.mockImplementation(async function* (params: any) {
-      receivedPrompt = params.prompt;
-      receivedSystem = params.options?.systemPrompt ?? '';
-      yield { result: 'done' } as never;
-    } as any);
-
-    await env.run(executorActivity, {
-      task: makeTask({
-        purpose: 'Get price data',
-        successCriteria: ['Current rate', 'From API'],
-        outputFormat: 'JSON',
-      }),
-      completedTaskResults: [],
-      originalPrompt: 'Get data',
-      model: 'test',
+      workflowId: 'wf-123',
     });
 
-    expect(receivedPrompt).toContain('目的: Get price data');
-    expect(receivedPrompt).toContain('Current rate');
-    expect(receivedPrompt).toContain('出力形式: JSON');
-    expect(receivedSystem).not.toContain('ユーザーの意図');
-    expect(receivedSystem).not.toContain('品質指針');
-  });
-
-  it('includes planContext but no task guidance fields', async () => {
-    let receivedPrompt = '';
-    let receivedSystem = '';
-    mockQuery.mockImplementation(async function* (params: any) {
-      receivedPrompt = params.prompt;
-      receivedSystem = params.options?.systemPrompt ?? '';
-      yield { result: 'done' } as never;
-    } as any);
-
-    await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Simple task',
-      model: 'test',
-      planContext: {
-        userIntent: 'Important context',
-        qualityGuidelines: 'High standards',
-      },
-    });
-
-    expect(receivedSystem).toContain('Important context');
-    expect(receivedSystem).toContain('High standards');
-    expect(receivedPrompt).not.toContain('タスク固有の指針');
+    expect(mockWriteTaskResult).toHaveBeenCalled();
+    expect(mockWriteToolEvidence).not.toHaveBeenCalled();
   });
 });

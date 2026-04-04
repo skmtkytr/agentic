@@ -1,21 +1,16 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
 import type { ReviewerResponse } from '../../src/types/agents';
 import type { Task } from '../../src/types/task';
+import type { LLMCallOptions } from '../../src/llm/parseWithRetry';
 
-jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: jest.fn(),
+jest.mock('../../src/llm/parseWithRetry', () => ({
+  callStructured: jest.fn(),
 }));
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
-const mockQuery = query as jest.MockedFunction<typeof query>;
-
-function setupQueryMock(resultText: string) {
-  mockQuery.mockImplementation(async function* () {
-    yield { result: resultText } as never;
-  } as any);
-}
-
+import { callStructured } from '../../src/llm/parseWithRetry';
 import { reviewerActivity } from '../../src/activities/reviewerActivity';
+
+const mockCallStructured = callStructured as jest.MockedFunction<typeof callStructured>;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -28,172 +23,74 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+function setupMock(result: Partial<ReviewerResponse>) {
+  mockCallStructured.mockResolvedValue({
+    taskId: 'task-1',
+    passed: true,
+    notes: 'Good',
+    ...result,
+  });
+}
+
 describe('reviewerActivity', () => {
   const env = new MockActivityEnvironment();
 
-  beforeEach(() => mockQuery.mockReset());
+  beforeEach(() => mockCallStructured.mockReset());
 
-  it('returns passed review', async () => {
-    setupQueryMock(
-      JSON.stringify({
-        taskId: 'task-1',
-        passed: true,
-        notes: 'Good implementation',
-      }),
-    );
+  // --- callStructured argument verification ---
 
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'function add(a, b) { return a + b; }',
-      originalPrompt: 'Create add function',
-      model: 'claude-opus-4-6',
-    })) as ReviewerResponse;
-
-    expect(result.passed).toBe(true);
-    expect(result.taskId).toBe('task-1');
-    expect(result.notes).toBe('Good implementation');
-    expect(result.revisedResult).toBeUndefined();
-  });
-
-  it('returns failed review with notes', async () => {
-    setupQueryMock(
-      JSON.stringify({
-        taskId: 'task-1',
-        passed: false,
-        notes: 'Missing error handling',
-      }),
-    );
-
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'bad code',
-      originalPrompt: 'Create robust function',
-      model: 'claude-opus-4-6',
-    })) as ReviewerResponse;
-
-    expect(result.passed).toBe(false);
-    expect(result.notes).toBe('Missing error handling');
-  });
-
-  it('returns revised result when provided', async () => {
-    setupQueryMock(
-      JSON.stringify({
-        taskId: 'task-1',
-        passed: true,
-        notes: 'Fixed minor issue',
-        revisedResult: 'improved code here',
-      }),
-    );
-
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'original code',
-      originalPrompt: 'Create function',
-      model: 'claude-opus-4-6',
-    })) as ReviewerResponse;
-
-    expect(result.passed).toBe(true);
-    expect(result.revisedResult).toBe('improved code here');
-  });
-
-  it('uses task.id as fallback when taskId missing from LLM response', async () => {
-    setupQueryMock(
-      JSON.stringify({
-        taskId: '',
-        passed: true,
-        notes: 'ok',
-      }),
-    );
-
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask({ id: 'my-task-id' }),
-      result: 'some result',
-      originalPrompt: 'test',
-      model: 'claude-opus-4-6',
-    })) as ReviewerResponse;
-
-    expect(result.taskId).toBe('my-task-id');
-  });
-
-  it('uses file path in prompt and enables Read tool when resultFilePath provided', async () => {
-    setupQueryMock(
-      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Verified via file' }),
-    );
+  it('calls callStructured with correct provider and model', async () => {
+    setupMock({});
 
     await env.run(reviewerActivity, {
       task: makeTask(),
-      result: 'inline result (ignored)',
-      resultFilePath: '/tmp/agentic/wf-1/task-1/result.md',
-      originalPrompt: 'test',
-      model: 'claude-opus-4-6',
+      result: 'some result',
+      originalPrompt: 'Test',
+      model: 'claude-sonnet-4-6',
+      provider: 'local-llm',
     });
 
-    const callArgs = mockQuery.mock.calls[0][0];
-    // Prompt should contain file path, not inline result
-    expect(callArgs.prompt).toContain('/tmp/agentic/wf-1/task-1/result.md');
-    expect(callArgs.prompt).toContain('Read ツール');
-    // Read tool should be allowed
-    expect(callArgs.options?.allowedTools).toContain('Read');
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.provider).toBe('local-llm');
+    expect(opts.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('uses Read tool when resultFilePath is provided', async () => {
+    setupMock({});
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'inline result',
+      resultFilePath: '/tmp/agentic/wf/task-1/result.md',
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.allowedTools).toEqual(['Read']);
+    expect(opts.userContent).toContain('/tmp/agentic/wf/task-1/result.md');
+    expect(opts.userContent).toContain('Read ツール');
   });
 
   it('uses inline result when no resultFilePath', async () => {
-    setupQueryMock(
-      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'ok' }),
-    );
+    setupMock({});
 
     await env.run(reviewerActivity, {
       task: makeTask(),
-      result: 'my inline result text',
-      originalPrompt: 'test',
-      model: 'claude-opus-4-6',
+      result: 'inline execution result',
+      originalPrompt: 'Test',
+      model: 'test',
     });
 
-    const callArgs = mockQuery.mock.calls[0][0];
-    expect(callArgs.prompt).toContain('my inline result text');
-    // No Read tool needed
-    expect(callArgs.options?.allowedTools).toBeUndefined();
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.allowedTools).toBeUndefined();
+    expect(opts.userContent).toContain('inline execution result');
   });
 
-  it('includes tool usage evidence in prompt when provided', async () => {
-    setupQueryMock(
-      JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Verified with tool evidence' }),
-    );
+  // --- System prompt: successCriteria ---
 
-    await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'ETH is $2,047',
-      originalPrompt: 'Get ETH price',
-      model: 'claude-opus-4-6',
-      toolUsage: [
-        { tool: 'WebFetch', input: 'https://api.coingecko.com/...', output: '{"usd":2047}', timestamp: 1234567890 },
-      ],
-    });
-
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('WebFetch');
-    expect(prompt).toContain('https://api.coingecko.com/');
-    expect(prompt).toContain('{"usd":2047}');
-  });
-
-  it('throws on invalid JSON', async () => {
-    setupQueryMock('not json');
-
-    await expect(
-      env.run(reviewerActivity, {
-        task: makeTask(),
-        result: 'code',
-        originalPrompt: 'test',
-        model: 'claude-opus-4-6',
-      }),
-    ).rejects.toThrow(/JSON parse failed/);
-  });
-
-  it('includes successCriteria in prompt when present', async () => {
-    let receivedSystem = '';
-    mockQuery.mockImplementation(async function* (params: any) {
-      receivedSystem = params.options?.systemPrompt ?? '';
-      yield { result: JSON.stringify({ taskId: 'task-1', passed: true, notes: 'ok' }) } as never;
-    } as any);
+  it('includes successCriteria in system prompt when present', async () => {
+    setupMock({});
 
     await env.run(reviewerActivity, {
       task: makeTask({
@@ -204,25 +101,120 @@ describe('reviewerActivity', () => {
       model: 'test',
     });
 
-    expect(receivedSystem).toContain('Data from reliable source');
-    expect(receivedSystem).toContain('Includes USD price');
-    expect(receivedSystem).toContain('タスク固有の成功基準');
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).toContain('タスク固有の成功基準');
+    expect(opts.system).toContain('1. Data from reliable source');
+    expect(opts.system).toContain('2. Includes USD price');
   });
 
   it('does not include successCriteria section when absent', async () => {
-    let receivedSystem = '';
-    mockQuery.mockImplementation(async function* (params: any) {
-      receivedSystem = params.options?.systemPrompt ?? '';
-      yield { result: JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Good' }) } as never;
-    } as any);
+    setupMock({});
 
     await env.run(reviewerActivity, {
       task: makeTask(),
-      result: 'some result',
+      result: 'result',
       originalPrompt: 'Test',
       model: 'test',
     });
 
-    expect(receivedSystem).not.toContain('タスク固有の成功基準');
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).not.toContain('タスク固有の成功基準');
+  });
+
+  it('does not include successCriteria section when array is empty', async () => {
+    setupMock({});
+
+    await env.run(reviewerActivity, {
+      task: makeTask({ successCriteria: [] }),
+      result: 'result',
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).not.toContain('タスク固有の成功基準');
+  });
+
+  // --- Tool evidence in userContent ---
+
+  it('includes tool usage evidence in userContent', async () => {
+    setupMock({});
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'ETH data',
+      originalPrompt: 'Test',
+      model: 'test',
+      toolUsage: [
+        { tool: 'WebFetch', input: 'https://api.coingecko.com', output: '{"usd":2000}', timestamp: 1 },
+      ],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.userContent).toContain('WebFetch');
+    expect(opts.userContent).toContain('https://api.coingecko.com');
+  });
+
+  it('truncates tool output to 200 chars in evidence', async () => {
+    setupMock({});
+
+    const longOutput = 'x'.repeat(300);
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'result',
+      originalPrompt: 'Test',
+      model: 'test',
+      toolUsage: [
+        { tool: 'WebFetch', input: 'url', output: longOutput, timestamp: 1 },
+      ],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    // output in prompt should be truncated to 200 chars
+    expect(opts.userContent).not.toContain('x'.repeat(300));
+    expect(opts.userContent).toContain('x'.repeat(200));
+  });
+
+  // --- Result handling ---
+
+  it('returns review result with passed=true', async () => {
+    setupMock({ taskId: 'task-1', passed: true, notes: 'Excellent work' });
+
+    const result = (await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'some result',
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ReviewerResponse;
+
+    expect(result.taskId).toBe('task-1');
+    expect(result.passed).toBe(true);
+    expect(result.notes).toBe('Excellent work');
+  });
+
+  it('returns revisedResult when provided by LLM', async () => {
+    setupMock({ passed: true, notes: 'Fixed', revisedResult: 'improved version' });
+
+    const result = (await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'original',
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ReviewerResponse;
+
+    expect(result.revisedResult).toBe('improved version');
+  });
+
+  it('falls back to req.task.id when LLM returns empty taskId', async () => {
+    setupMock({ taskId: '', passed: true, notes: 'ok' });
+
+    const result = (await env.run(reviewerActivity, {
+      task: makeTask({ id: 'my-task' }),
+      result: 'result',
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ReviewerResponse;
+
+    expect(result.taskId).toBe('my-task');
   });
 });

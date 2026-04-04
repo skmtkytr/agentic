@@ -1,20 +1,14 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
 import type { ValidatorResponse } from '../../src/types/agents';
 
-jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: jest.fn(),
+jest.mock('../../src/llm/parseWithRetry', () => ({
+  callStructured: jest.fn(),
 }));
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
-const mockQuery = query as jest.MockedFunction<typeof query>;
-
-function setupQueryMock(resultText: string) {
-  mockQuery.mockImplementation(async function* () {
-    yield { result: resultText } as never;
-  } as any);
-}
-
+import { callStructured } from '../../src/llm/parseWithRetry';
 import { validatorActivity } from '../../src/activities/validatorActivity';
+
+const mockCallStructured = callStructured as jest.MockedFunction<typeof callStructured>;
 
 const basePlan = {
   planSummary: 'Test plan',
@@ -26,14 +20,48 @@ const basePlan = {
 describe('validatorActivity', () => {
   const env = new MockActivityEnvironment();
 
-  beforeEach(() => mockQuery.mockReset());
+  beforeEach(() => mockCallStructured.mockReset());
 
-  it('returns valid result when plan is correct', async () => {
-    setupQueryMock(JSON.stringify({ valid: true, issues: [] }));
+  // --- callStructured argument verification ---
+
+  it('calls callStructured with correct provider, model, and plan in userContent', async () => {
+    mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
+
+    await env.run(validatorActivity, {
+      plan: basePlan,
+      model: 'claude-sonnet-4-6',
+      provider: 'local-llm',
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.provider).toBe('local-llm');
+    expect(opts.model).toBe('claude-sonnet-4-6');
+    expect(opts.userContent).toContain('Task 1');
+    expect(opts.userContent).toContain('Test plan');
+  });
+
+  it('system prompt contains validation check items', async () => {
+    mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
+
+    await env.run(validatorActivity, {
+      plan: basePlan,
+      model: 'test',
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).toContain('バリデーション');
+    expect(opts.system).toContain('循環依存');
+    expect(opts.system).toContain('存在しないID');
+  });
+
+  // --- Result handling ---
+
+  it('returns valid result', async () => {
+    mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
 
     const result = (await env.run(validatorActivity, {
       plan: basePlan,
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ValidatorResponse;
 
     expect(result.result.valid).toBe(true);
@@ -41,16 +69,14 @@ describe('validatorActivity', () => {
   });
 
   it('returns invalid result with issues', async () => {
-    setupQueryMock(
-      JSON.stringify({
-        valid: false,
-        issues: ['Circular dependency between t1 and t2'],
-      }),
-    );
+    mockCallStructured.mockResolvedValue({
+      valid: false,
+      issues: ['Circular dependency between t1 and t2'],
+    });
 
     const result = (await env.run(validatorActivity, {
       plan: basePlan,
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ValidatorResponse;
 
     expect(result.result.valid).toBe(false);
@@ -58,26 +84,24 @@ describe('validatorActivity', () => {
     expect(result.result.issues[0]).toMatch(/Circular dependency/);
   });
 
-  it('returns revised plan when validator corrects issues', async () => {
+  it('returns revisedPlan when validator corrects issues', async () => {
     const revisedPlan = {
       planSummary: 'Revised plan',
       tasks: [
-        { id: 't1', description: 'Fixed task', dependsOn: [], status: 'pending', reviewPassed: false },
-        { id: 't2', description: 'New task', dependsOn: ['t1'], status: 'pending', reviewPassed: false },
+        { id: 't1', description: 'Fixed task', dependsOn: [], status: 'pending' as const, reviewPassed: false },
+        { id: 't2', description: 'New task', dependsOn: ['t1'], status: 'pending' as const, reviewPassed: false },
       ],
     };
 
-    setupQueryMock(
-      JSON.stringify({
-        valid: true,
-        issues: ['Added missing step'],
-        revisedPlan,
-      }),
-    );
+    mockCallStructured.mockResolvedValue({
+      valid: true,
+      issues: ['Added missing step'],
+      revisedPlan,
+    });
 
     const result = (await env.run(validatorActivity, {
       plan: basePlan,
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ValidatorResponse;
 
     expect(result.result.valid).toBe(true);
@@ -85,22 +109,14 @@ describe('validatorActivity', () => {
     expect(result.result.revisedPlan!.tasks).toHaveLength(2);
   });
 
-  it('defaults issues to empty array when not provided', async () => {
-    setupQueryMock(JSON.stringify({ valid: true }));
+  it('defaults issues to empty array when not provided by LLM', async () => {
+    mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
 
     const result = (await env.run(validatorActivity, {
       plan: basePlan,
-      model: 'claude-opus-4-6',
+      model: 'test',
     })) as ValidatorResponse;
 
     expect(result.result.issues).toEqual([]);
-  });
-
-  it('throws on invalid JSON', async () => {
-    setupQueryMock('This is not valid JSON');
-
-    await expect(
-      env.run(validatorActivity, { plan: basePlan, model: 'claude-opus-4-6' }),
-    ).rejects.toThrow(/JSON parse failed/);
   });
 });

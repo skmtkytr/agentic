@@ -1,21 +1,22 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
 import type { IntegratorResponse } from '../../src/types/agents';
 import type { Task } from '../../src/types/task';
+import type { LLMCallOptions } from '../../src/llm/parseWithRetry';
 
-jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: jest.fn(),
+jest.mock('../../src/llm/parseWithRetry', () => ({
+  callRawText: jest.fn(),
 }));
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
-const mockQuery = query as jest.MockedFunction<typeof query>;
+jest.mock('../../src/activities/artifactStore', () => ({
+  writeIntegratedResult: jest.fn().mockResolvedValue('/tmp/agentic/mock/_integrated/response.md'),
+}));
 
-function setupQueryMock(resultText: string) {
-  mockQuery.mockImplementation(async function* () {
-    yield { result: resultText } as never;
-  } as any);
-}
-
+import { callRawText } from '../../src/llm/parseWithRetry';
+import { writeIntegratedResult } from '../../src/activities/artifactStore';
 import { integratorActivity } from '../../src/activities/integratorActivity';
+
+const mockCallRawText = callRawText as jest.MockedFunction<typeof callRawText>;
+const mockWriteResult = writeIntegratedResult as jest.MockedFunction<typeof writeIntegratedResult>;
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -29,110 +30,105 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+function setupMock(text: string) {
+  mockCallRawText.mockResolvedValue({ text, toolUsage: [] });
+}
+
 describe('integratorActivity', () => {
   const env = new MockActivityEnvironment();
 
-  beforeEach(() => mockQuery.mockReset());
-
-  it('integrates reviewed task results', async () => {
-    setupQueryMock('Integrated response combining all results');
-
-    const result = (await env.run(integratorActivity, {
-      originalPrompt: 'Build a calculator',
-      reviewedTasks: [
-        makeTask({ id: 't1', description: 'Add function', result: 'add impl' }),
-        makeTask({ id: 't2', description: 'Multiply function', result: 'multiply impl' }),
-      ],
-      model: 'claude-opus-4-6',
-    })) as IntegratorResponse;
-
-    expect(result.integratedResponse).toBe('Integrated response combining all results');
+  beforeEach(() => {
+    mockCallRawText.mockReset();
+    mockWriteResult.mockReset().mockResolvedValue('/tmp/agentic/mock/_integrated/response.md');
   });
 
-  it('includes all task results in prompt', async () => {
-    setupQueryMock('combined');
+  // --- callRawText argument verification ---
+
+  it('calls callRawText with correct provider and model', async () => {
+    setupMock('integrated');
 
     await env.run(integratorActivity, {
-      originalPrompt: 'test',
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'claude-sonnet-4-6',
+      provider: 'local-llm',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.provider).toBe('local-llm');
+    expect(opts.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('includes all task results in userContent (inline)', async () => {
+    setupMock('combined');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Build app',
       reviewedTasks: [
         makeTask({ description: 'Task A', result: 'Result A' }),
-        makeTask({ description: 'Task B', result: 'Result B' }),
+        makeTask({ id: 'task-2', description: 'Task B', result: 'Result B' }),
       ],
-      model: 'claude-opus-4-6',
+      model: 'test',
     });
 
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('### Task A');
-    expect(prompt).toContain('Result A');
-    expect(prompt).toContain('### Task B');
-    expect(prompt).toContain('Result B');
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('### Task A');
+    expect(opts.userContent).toContain('Result A');
+    expect(opts.userContent).toContain('### Task B');
+    expect(opts.userContent).toContain('Result B');
   });
 
-  it('handles tasks with no result', async () => {
-    setupQueryMock('handled');
+  it('shows (no result) for tasks without result', async () => {
+    setupMock('handled');
 
     await env.run(integratorActivity, {
-      originalPrompt: 'test',
+      originalPrompt: 'Test',
       reviewedTasks: [makeTask({ result: undefined })],
-      model: 'claude-opus-4-6',
+      model: 'test',
     });
 
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('(no result)');
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('(no result)');
   });
 
-  it('uses file paths in prompt when taskResultFiles provided', async () => {
-    setupQueryMock('integrated from files');
+  it('uses file paths instead of inline when taskResultFiles provided', async () => {
+    setupMock('from files');
 
     await env.run(integratorActivity, {
-      originalPrompt: 'test',
+      originalPrompt: 'Test',
       reviewedTasks: [makeTask()],
       taskResultFiles: [
         { taskId: 't1', description: 'Task A', filePath: '/tmp/agentic/wf/t1/result.md' },
-        { taskId: 't2', description: 'Task B', filePath: '/tmp/agentic/wf/t2/result.md' },
       ],
-      model: 'claude-opus-4-6',
+      model: 'test',
     });
 
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('/tmp/agentic/wf/t1/result.md');
-    expect(prompt).toContain('/tmp/agentic/wf/t2/result.md');
-    expect(prompt).toContain('Read ツール');
-    // Read tool should be in allowedTools
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts?.allowedTools).toContain('Read');
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('/tmp/agentic/wf/t1/result.md');
+    expect(opts.userContent).toContain('Read ツール');
+    expect(opts.allowedTools).toContain('Read');
   });
 
-  it('uses inline results when no taskResultFiles', async () => {
-    setupQueryMock('integrated inline');
+  it('adds Read tool to existing allowedTools when using file paths', async () => {
+    setupMock('result');
 
     await env.run(integratorActivity, {
-      originalPrompt: 'test',
-      reviewedTasks: [makeTask({ description: 'Inline task', result: 'Inline data' })],
-      model: 'claude-opus-4-6',
-    });
-
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('Inline data');
-  });
-
-  it('passes allowedTools when specified', async () => {
-    setupQueryMock('result');
-
-    await env.run(integratorActivity, {
-      originalPrompt: 'test',
+      originalPrompt: 'Test',
       reviewedTasks: [makeTask()],
-      model: 'claude-opus-4-6',
-      allowedTools: ['Read', 'Grep'],
+      taskResultFiles: [{ taskId: 't1', description: 'Task', filePath: '/tmp/file.md' }],
+      model: 'test',
+      allowedTools: ['Grep'],
     });
 
-    const opts = mockQuery.mock.calls[0][0].options;
-    expect(opts?.allowedTools).toEqual(['Read', 'Grep']);
-    expect(opts?.permissionMode).toBe('dontAsk');
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.allowedTools).toContain('Read');
+    expect(opts.allowedTools).toContain('Grep');
   });
 
-  it('includes planContext.userIntent and qualityGuidelines in prompt', async () => {
-    setupQueryMock('integrated with context');
+  // --- planContext ---
+
+  it('includes planContext.userIntent and qualityGuidelines in userContent', async () => {
+    setupMock('integrated with context');
 
     await env.run(integratorActivity, {
       originalPrompt: 'Test',
@@ -144,13 +140,43 @@ describe('integratorActivity', () => {
       },
     });
 
-    const prompt = mockQuery.mock.calls[0][0].prompt;
-    expect(prompt).toContain('User wants comprehensive analysis');
-    expect(prompt).toContain('Cite all sources');
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('User wants comprehensive analysis');
+    expect(opts.userContent).toContain('Cite all sources');
   });
 
-  it('works without planContext', async () => {
-    setupQueryMock('integrated without context');
+  it('omits planContext sections when not provided', async () => {
+    setupMock('result');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).not.toContain('ユーザーの意図');
+    expect(opts.userContent).not.toContain('品質指針');
+  });
+
+  // --- File writing ---
+
+  it('calls writeIntegratedResult when workflowId provided', async () => {
+    setupMock('integrated text');
+
+    const result = (await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+      workflowId: 'wf-123',
+    })) as IntegratorResponse;
+
+    expect(mockWriteResult).toHaveBeenCalledWith('wf-123', 'integrated text');
+    expect(result.integratedResponseFilePath).toBe('/tmp/agentic/mock/_integrated/response.md');
+  });
+
+  it('does not write file when workflowId absent', async () => {
+    setupMock('inline');
 
     const result = (await env.run(integratorActivity, {
       originalPrompt: 'Test',
@@ -158,6 +184,21 @@ describe('integratorActivity', () => {
       model: 'test',
     })) as IntegratorResponse;
 
-    expect(result.integratedResponse).toBe('integrated without context');
+    expect(mockWriteResult).not.toHaveBeenCalled();
+    expect(result.integratedResponseFilePath).toBeUndefined();
+  });
+
+  // --- Result ---
+
+  it('returns integratedResponse from callRawText', async () => {
+    setupMock('Final integrated answer');
+
+    const result = (await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+    })) as IntegratorResponse;
+
+    expect(result.integratedResponse).toBe('Final integrated answer');
   });
 });
