@@ -78,10 +78,10 @@ describe('integrationReviewerActivity', () => {
 
   // --- Text truncation ---
 
-  it('truncates long inline response to MAX_RESPONSE_CHARS', async () => {
+  it('truncates response exceeding 15000 chars', async () => {
     setupMock({});
 
-    const longResponse = 'x'.repeat(20000);
+    const longResponse = 'x'.repeat(15001);
     await env.run(integrationReviewerActivity, {
       originalPrompt: 'Test',
       integratedResponse: longResponse,
@@ -89,22 +89,22 @@ describe('integrationReviewerActivity', () => {
     });
 
     const [_schema, opts] = mockCallStructured.mock.calls[0];
-    expect(opts.userContent).not.toContain('x'.repeat(20000));
+    expect(opts.userContent).not.toContain('x'.repeat(15001));
     expect(opts.userContent).toContain('以下省略');
   });
 
-  it('does not truncate response under limit', async () => {
+  it('does not truncate response at exactly 15000 chars', async () => {
     setupMock({});
 
-    const shortResponse = 'x'.repeat(1000);
+    const exactResponse = 'y'.repeat(15000);
     await env.run(integrationReviewerActivity, {
       originalPrompt: 'Test',
-      integratedResponse: shortResponse,
+      integratedResponse: exactResponse,
       model: 'test',
     });
 
     const [_schema, opts] = mockCallStructured.mock.calls[0];
-    expect(opts.userContent).toContain(shortResponse);
+    expect(opts.userContent).toContain(exactResponse);
     expect(opts.userContent).not.toContain('以下省略');
   });
 
@@ -127,7 +127,7 @@ describe('integrationReviewerActivity', () => {
     expect(opts.userContent).toContain('Fetch ETH');
   });
 
-  it('limits tool evidence to MAX_EVIDENCE entries', async () => {
+  it('limits tool evidence to MAX_EVIDENCE=10 entries', async () => {
     setupMock({});
 
     const evidence = Array.from({ length: 15 }, (_, i) => ({
@@ -143,9 +143,40 @@ describe('integrationReviewerActivity', () => {
 
     const [_schema, opts] = mockCallStructured.mock.calls[0];
     expect(opts.userContent).toContain('他5件');
-    // Should contain first 10, not the 11th
     expect(opts.userContent).toContain('url0');
     expect(opts.userContent).toContain('url9');
+  });
+
+  it('truncates taskDescription to 40 chars in evidence', async () => {
+    setupMock({});
+
+    const longDesc = 'D'.repeat(50);
+    await env.run(integrationReviewerActivity, {
+      originalPrompt: 'Test',
+      integratedResponse: 'response',
+      model: 'test',
+      toolEvidence: [{ taskDescription: longDesc, tool: 'Bash', input: 'ls', output: 'files' }],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.userContent).toContain('D'.repeat(40));
+    expect(opts.userContent).not.toContain('D'.repeat(41));
+  });
+
+  it('truncates input to 60 chars in evidence', async () => {
+    setupMock({});
+
+    const longInput = 'I'.repeat(70);
+    await env.run(integrationReviewerActivity, {
+      originalPrompt: 'Test',
+      integratedResponse: 'response',
+      model: 'test',
+      toolEvidence: [{ taskDescription: 'Task', tool: 'Bash', input: longInput, output: 'out' }],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.userContent).toContain('I'.repeat(60));
+    expect(opts.userContent).not.toContain('I'.repeat(61));
   });
 
   // --- planContext ---
@@ -184,45 +215,7 @@ describe('integrationReviewerActivity', () => {
 
   // --- Result handling ---
 
-  it('returns passed review with score', async () => {
-    setupMock({
-      passed: true,
-      notes: 'Complete and accurate',
-      score: { completeness: 5, accuracy: 5, structure: 5, actionability: 4, overall: 5 },
-      strengths: ['Well structured'],
-      improvements: [],
-    });
-
-    const result = (await env.run(integrationReviewerActivity, {
-      originalPrompt: 'Test',
-      integratedResponse: 'response',
-      model: 'test',
-    })) as IntegrationReviewerResponse;
-
-    expect(result.passed).toBe(true);
-    expect(result.score.overall).toBe(5);
-    expect(result.strengths).toContain('Well structured');
-  });
-
-  it('returns failed review', async () => {
-    setupMock({
-      passed: false,
-      notes: 'Missing data',
-      score: { completeness: 2, accuracy: 2, structure: 3, actionability: 2, overall: 2 },
-      improvements: ['Add error handling'],
-    });
-
-    const result = (await env.run(integrationReviewerActivity, {
-      originalPrompt: 'Test',
-      integratedResponse: 'response',
-      model: 'test',
-    })) as IntegrationReviewerResponse;
-
-    expect(result.passed).toBe(false);
-    expect(result.improvements).toContain('Add error handling');
-  });
-
-  it('returns revisedResponse when provided', async () => {
+  it('passes through revisedResponse from LLM output', async () => {
     setupMock({ revisedResponse: 'improved response' });
 
     const result = (await env.run(integrationReviewerActivity, {

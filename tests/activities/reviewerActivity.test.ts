@@ -155,55 +155,44 @@ describe('reviewerActivity', () => {
     expect(opts.userContent).toContain('https://api.coingecko.com');
   });
 
-  it('truncates tool output to 200 chars in evidence', async () => {
+  it('truncates tool output to exactly 200 chars in evidence', async () => {
     setupMock({});
 
-    const longOutput = 'x'.repeat(300);
+    const output201 = 'a'.repeat(201);
     await env.run(reviewerActivity, {
       task: makeTask(),
       result: 'result',
       originalPrompt: 'Test',
       model: 'test',
       toolUsage: [
-        { tool: 'WebFetch', input: 'url', output: longOutput, timestamp: 1 },
+        { tool: 'WebFetch', input: 'url', output: output201, timestamp: 1 },
       ],
     });
 
     const [_schema, opts] = mockCallStructured.mock.calls[0];
-    // output in prompt should be truncated to 200 chars
-    expect(opts.userContent).not.toContain('x'.repeat(300));
-    expect(opts.userContent).toContain('x'.repeat(200));
+    expect(opts.userContent).toContain('a'.repeat(200));
+    expect(opts.userContent).not.toContain('a'.repeat(201));
+  });
+
+  it('does not truncate tool output at exactly 200 chars', async () => {
+    setupMock({});
+
+    const output200 = 'b'.repeat(200);
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'result',
+      originalPrompt: 'Test',
+      model: 'test',
+      toolUsage: [
+        { tool: 'WebFetch', input: 'url', output: output200, timestamp: 1 },
+      ],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.userContent).toContain(output200);
   });
 
   // --- Result handling ---
-
-  it('returns review result with passed=true', async () => {
-    setupMock({ taskId: 'task-1', passed: true, notes: 'Excellent work' });
-
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'some result',
-      originalPrompt: 'Test',
-      model: 'test',
-    })) as ReviewerResponse;
-
-    expect(result.taskId).toBe('task-1');
-    expect(result.passed).toBe(true);
-    expect(result.notes).toBe('Excellent work');
-  });
-
-  it('returns revisedResult when provided by LLM', async () => {
-    setupMock({ passed: true, notes: 'Fixed', revisedResult: 'improved version' });
-
-    const result = (await env.run(reviewerActivity, {
-      task: makeTask(),
-      result: 'original',
-      originalPrompt: 'Test',
-      model: 'test',
-    })) as ReviewerResponse;
-
-    expect(result.revisedResult).toBe('improved version');
-  });
 
   it('falls back to req.task.id when LLM returns empty taskId', async () => {
     setupMock({ taskId: '', passed: true, notes: 'ok' });

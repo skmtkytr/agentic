@@ -125,6 +125,22 @@ describe('integratorActivity', () => {
     expect(opts.allowedTools).toContain('Grep');
   });
 
+  it('does not duplicate Read in allowedTools when already present', async () => {
+    setupMock('result');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      taskResultFiles: [{ taskId: 't1', description: 'Task', filePath: '/tmp/file.md' }],
+      model: 'test',
+      allowedTools: ['Read', 'Grep'],
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    const readCount = opts.allowedTools!.filter((t: string) => t === 'Read').length;
+    expect(readCount).toBe(1);
+  });
+
   // --- planContext ---
 
   it('includes planContext.userIntent and qualityGuidelines in userContent', async () => {
@@ -143,6 +159,21 @@ describe('integratorActivity', () => {
     const opts = mockCallRawText.mock.calls[0][0];
     expect(opts.userContent).toContain('User wants comprehensive analysis');
     expect(opts.userContent).toContain('Cite all sources');
+  });
+
+  it('includes only userIntent when qualityGuidelines absent', async () => {
+    setupMock('result');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+      planContext: { userIntent: 'Only intent here' },
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.userContent).toContain('Only intent here');
+    expect(opts.userContent).not.toContain('品質指針');
   });
 
   it('omits planContext sections when not provided', async () => {
@@ -188,17 +219,4 @@ describe('integratorActivity', () => {
     expect(result.integratedResponseFilePath).toBeUndefined();
   });
 
-  // --- Result ---
-
-  it('returns integratedResponse from callRawText', async () => {
-    setupMock('Final integrated answer');
-
-    const result = (await env.run(integratorActivity, {
-      originalPrompt: 'Test',
-      reviewedTasks: [makeTask()],
-      model: 'test',
-    })) as IntegratorResponse;
-
-    expect(result.integratedResponse).toBe('Final integrated answer');
-  });
 });

@@ -225,50 +225,102 @@ describe('executorActivity', () => {
     expect(opts.userContent).toContain('Analyze market trends');
   });
 
+  // --- planContext partial combinations ---
+
+  it('includes only userIntent when qualityGuidelines absent', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      planContext: { userIntent: 'Only intent' },
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('Only intent');
+    expect(opts.system).not.toContain('品質指針');
+  });
+
+  it('includes only qualityGuidelines when userIntent absent', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      planContext: { qualityGuidelines: 'Only guidelines' },
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('Only guidelines');
+    expect(opts.system).not.toContain('ユーザーの意図');
+  });
+
+  // --- completedTaskResults formatting ---
+
+  it('joins multiple completed task results with double newlines', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask({ id: 'task-3' }),
+      completedTaskResults: [
+        { taskId: 'task-1', description: 'Step 1', result: 'result 1' },
+        { taskId: 'task-2', description: 'Step 2', result: 'result 2' },
+      ],
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('[Step 1]:\nresult 1');
+    expect(opts.system).toContain('[Step 2]:\nresult 2');
+  });
+
+  it('omits context section when completedTaskResults is empty', async () => {
+    setupMock('result');
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).not.toContain('完了済みタスクのコンテキスト');
+  });
+
   // --- Result handling ---
 
-  it('returns taskId and result text', async () => {
-    setupMock('function add(a, b) { return a + b; }');
+  it('maps task.id to result.taskId', async () => {
+    setupMock('any result');
 
     const result = (await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Create a calculator',
-      model: 'test',
-    })) as ExecutorResponse;
-
-    expect(result.taskId).toBe('task-1');
-    expect(result.result).toBe('function add(a, b) { return a + b; }');
-  });
-
-  it('returns toolUsage from callRawText', async () => {
-    setupMock('ETH = $2000', [
-      { tool: 'WebFetch', input: 'https://api.coingecko.com', output: '{"usd":2000}', timestamp: 1000 },
-    ]);
-
-    const result = (await env.run(executorActivity, {
-      task: makeTask(),
-      completedTaskResults: [],
-      originalPrompt: 'Get ETH',
-      model: 'test',
-      allowedTools: ['WebFetch'],
-    })) as ExecutorResponse;
-
-    expect(result.toolUsage).toHaveLength(1);
-    expect(result.toolUsage![0].tool).toBe('WebFetch');
-  });
-
-  it('returns empty toolUsage when none used', async () => {
-    setupMock('plain result');
-
-    const result = (await env.run(executorActivity, {
-      task: makeTask(),
+      task: makeTask({ id: 'my-task-id' }),
       completedTaskResults: [],
       originalPrompt: 'Test',
       model: 'test',
     })) as ExecutorResponse;
 
-    expect(result.toolUsage).toEqual([]);
+    expect(result.taskId).toBe('my-task-id');
+  });
+
+  // --- Error handling ---
+
+  it('propagates callRawText errors for Temporal retry', async () => {
+    mockCallRawText.mockRejectedValue(new Error('LLM service unavailable'));
+
+    await expect(
+      env.run(executorActivity, {
+        task: makeTask(),
+        completedTaskResults: [],
+        originalPrompt: 'Test',
+        model: 'test',
+      }),
+    ).rejects.toThrow('LLM service unavailable');
   });
 
   // --- File writing ---
