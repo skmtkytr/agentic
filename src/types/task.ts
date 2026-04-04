@@ -13,11 +13,16 @@ export interface Task {
   result?: string;
   reviewNotes?: string;
   reviewPassed: boolean;
+  purpose?: string;
+  successCriteria?: string[];
+  outputFormat?: string;
 }
 
 export interface TaskPlan {
   tasks: Task[];
   planSummary: string;
+  userIntent?: string;
+  qualityGuidelines?: string;
 }
 
 export interface ValidationResult {

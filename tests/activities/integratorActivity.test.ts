@@ -130,4 +130,34 @@ describe('integratorActivity', () => {
     expect(opts?.allowedTools).toEqual(['Read', 'Grep']);
     expect(opts?.permissionMode).toBe('dontAsk');
   });
+
+  it('includes planContext.userIntent and qualityGuidelines in prompt', async () => {
+    setupQueryMock('integrated with context');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+      planContext: {
+        userIntent: 'User wants comprehensive analysis',
+        qualityGuidelines: 'Cite all sources',
+      },
+    });
+
+    const prompt = mockQuery.mock.calls[0][0].prompt;
+    expect(prompt).toContain('User wants comprehensive analysis');
+    expect(prompt).toContain('Cite all sources');
+  });
+
+  it('works without planContext', async () => {
+    setupQueryMock('integrated without context');
+
+    const result = (await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+    })) as IntegratorResponse;
+
+    expect(result.integratedResponse).toBe('integrated without context');
+  });
 });

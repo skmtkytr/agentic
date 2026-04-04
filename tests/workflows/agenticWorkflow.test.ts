@@ -691,6 +691,66 @@ describe('agenticWorkflow', () => {
     expect(plannerModel).toBe('claude-opus-4-6');
   }, 60_000);
 
+  it('passes planContext from planner to executor, integrator, and integrationReviewer', async () => {
+    const received: Record<string, any> = {};
+
+    const activities: Activities = {
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'Plan with context',
+          userIntent: 'User wants real-time ETH data',
+          qualityGuidelines: 'Must use reliable API sources',
+          tasks: [makeTask({
+            id: randomUUID(),
+            description: 'Fetch ETH price',
+            purpose: 'Get market data',
+            successCriteria: ['From CoinGecko', 'USD and JPY'],
+          })],
+        },
+      }),
+      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+      executorActivity: async (req) => {
+        received.executor = { planContext: req.planContext, purpose: req.task.purpose, successCriteria: req.task.successCriteria };
+        return { taskId: req.task.id, result: 'ETH = $2000' };
+      },
+      reviewerActivity: async (req) => {
+        received.reviewer = { successCriteria: req.task.successCriteria };
+        return { taskId: req.task.id, passed: true, notes: 'ok' };
+      },
+      integratorActivity: async (req) => {
+        received.integrator = { planContext: req.planContext };
+        return { integratedResponse: 'integrated' };
+      },
+      integrationReviewerActivity: async (req) => {
+        received.integrationReviewer = { planContext: req.planContext };
+        return { passed: true, notes: 'ok', score: { completeness: 5, accuracy: 5, structure: 5, actionability: 5, overall: 5 }, strengths: [], improvements: [] };
+      },
+    };
+
+    await runWorkflow(activities, { prompt: 'Get ETH price' });
+
+    // Executor receives planContext and task-level fields
+    expect(received.executor.planContext?.userIntent).toBe('User wants real-time ETH data');
+    expect(received.executor.planContext?.qualityGuidelines).toBe('Must use reliable API sources');
+    expect(received.executor.purpose).toBe('Get market data');
+    expect(received.executor.successCriteria).toEqual(['From CoinGecko', 'USD and JPY']);
+
+    // Reviewer receives task-level successCriteria
+    expect(received.reviewer.successCriteria).toEqual(['From CoinGecko', 'USD and JPY']);
+
+    // Integrator receives planContext
+    expect(received.integrator.planContext?.userIntent).toBe('User wants real-time ETH data');
+
+    // IntegrationReviewer receives planContext
+    expect(received.integrationReviewer.planContext?.qualityGuidelines).toBe('Must use reliable API sources');
+  }, 60_000);
+
+  it('works without planContext fields (backward compat)', async () => {
+    // defaultMockActivities returns plan without userIntent/qualityGuidelines
+    const result = await runWorkflow(defaultMockActivities);
+    expect(result.integrationReviewPassed).toBe(true);
+  }, 60_000);
+
   it('records activity events throughout the workflow', async () => {
     const taskQueue = `test-agentic-${randomUUID()}`;
 

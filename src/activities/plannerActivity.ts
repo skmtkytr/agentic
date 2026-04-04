@@ -9,29 +9,45 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
   const parsed = await callStructured(TaskPlanSchema, {
     provider: req.provider,
     model: req.model,
-    system: `あなたはプランニングエージェントです。ユーザーのリクエストを、有向非巡回グラフ（DAG）を構成する個別の実行可能タスクに分解してください。
+    system: `あなたはプランニングエージェントです。以下の3ステップでタスクプランを生成してください。
 
-ルール:
+## ステップ1: ユーザー意図の分析
+リクエストの表面的な内容だけでなく、背景にある目的を推測してください。
+- 何を達成したいのか（ゴール）
+- どんな品質が求められているか（速度重視/正確性重視/網羅性重視 等）
+- 暗黙の期待は何か
+分析結果を userIntent に記述してください。
+
+## ステップ2: タスク分解
+DAGを構成する実行可能タスクに分解してください。各タスクには以下を含めてください:
+- description: 何を実行するか（具体的に日本語で）
+- purpose: このタスクが全体計画で果たす役割（1文）
+- successCriteria: このタスクの成功条件（具体的に2-4項目）
+- outputFormat: 期待される出力形式（例: "Markdown表形式", "箇条書き", "コードブロック"）
+
+DAGルール:
 - 各タスクには一意の短い文字列ID（例: "task_1", "task_2"）を付けてください
-- 各タスクの description には、何を実行すべきかを具体的に日本語で記述してください
 - "dependsOn" には、このタスクの実行前に完了が必要なタスクのIDを列挙してください
 - 循環依存は絶対に含めないでください
-- タスクは独立して実行できる粒度にしてください
-- planSummary には全体的なアプローチの概要を日本語で記述してください
-
-並列性の最大化:
 - 互いに独立して実行できるタスクは dependsOn を空にして並列実行可能にしてください
 - 本当に前のタスクの出力が必要な場合のみ dependsOn を設定してください
-- 「データ取得」と「テンプレート準備」のように独立した作業は並列にできます
-- 不必要な直列チェーンを避けてください
+
+## ステップ3: 品質指針
+qualityGuidelines に、このリクエスト特有の品質基準を記述してください。
+例: 「最新のリアルタイムデータに基づくこと」「技術的正確性を最優先」「ユーザーが即座に行動できる具体性」
 
 以下のスキーマに**厳密に**従ってJSONを出力してください。キー名は必ず英語のままにしてください:
 {
+  "userIntent": "string（日本語で記述）",
+  "qualityGuidelines": "string（日本語で記述）",
   "planSummary": "string（日本語で記述）",
   "tasks": [
     {
       "id": "string",
       "description": "string（日本語で記述）",
+      "purpose": "string（日本語で記述）",
+      "successCriteria": ["string（日本語で記述）"],
+      "outputFormat": "string",
       "dependsOn": ["string"],
       "status": "pending",
       "reviewPassed": false
@@ -39,7 +55,7 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
   ]
 }
 
-重要: "planSummary" と "tasks" はトップレベルのキーです。これらを別のキー名やラッパーオブジェクトで囲まないでください。`,
+重要: トップレベルのキーを別のキー名やラッパーオブジェクトで囲まないでください。`,
     userContent: req.prompt,
   });
 
@@ -61,7 +77,16 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
   log.info('Planner produced plan', {
     taskCount: remapped.length,
     summary: parsed.planSummary.slice(0, 100),
+    hasUserIntent: !!parsed.userIntent,
+    hasQualityGuidelines: !!parsed.qualityGuidelines,
   });
 
-  return { plan: { tasks: remapped, planSummary: parsed.planSummary } };
+  return {
+    plan: {
+      tasks: remapped,
+      planSummary: parsed.planSummary,
+      userIntent: parsed.userIntent,
+      qualityGuidelines: parsed.qualityGuidelines,
+    },
+  };
 }

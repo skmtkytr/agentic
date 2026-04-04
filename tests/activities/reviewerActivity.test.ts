@@ -187,4 +187,42 @@ describe('reviewerActivity', () => {
       }),
     ).rejects.toThrow(/JSON parse failed/);
   });
+
+  it('includes successCriteria in prompt when present', async () => {
+    let receivedSystem = '';
+    mockQuery.mockImplementation(async function* (params: any) {
+      receivedSystem = params.options?.systemPrompt ?? '';
+      yield { result: JSON.stringify({ taskId: 'task-1', passed: true, notes: 'ok' }) } as never;
+    } as any);
+
+    await env.run(reviewerActivity, {
+      task: makeTask({
+        successCriteria: ['Data from reliable source', 'Includes USD price'],
+      }),
+      result: 'ETH = $2000',
+      originalPrompt: 'Get ETH price',
+      model: 'test',
+    });
+
+    expect(receivedSystem).toContain('Data from reliable source');
+    expect(receivedSystem).toContain('Includes USD price');
+    expect(receivedSystem).toContain('タスク固有の成功基準');
+  });
+
+  it('does not include successCriteria section when absent', async () => {
+    let receivedSystem = '';
+    mockQuery.mockImplementation(async function* (params: any) {
+      receivedSystem = params.options?.systemPrompt ?? '';
+      yield { result: JSON.stringify({ taskId: 'task-1', passed: true, notes: 'Good' }) } as never;
+    } as any);
+
+    await env.run(reviewerActivity, {
+      task: makeTask(),
+      result: 'some result',
+      originalPrompt: 'Test',
+      model: 'test',
+    });
+
+    expect(receivedSystem).not.toContain('タスク固有の成功基準');
+  });
 });

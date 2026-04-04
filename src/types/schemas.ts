@@ -10,11 +10,16 @@ export const TaskSchema = z.object({
   result: z.string().optional(),
   reviewNotes: z.string().optional(),
   reviewPassed: z.boolean().default(false),
+  purpose: z.string().optional(),
+  successCriteria: z.array(z.string()).optional(),
+  outputFormat: z.string().optional(),
 });
 
 export const TaskPlanSchema = z.object({
   tasks: z.array(TaskSchema).min(1),
   planSummary: z.string(),
+  userIntent: z.string().optional(),
+  qualityGuidelines: z.string().optional(),
 });
 
 export const ValidationResultSchema = z.object({

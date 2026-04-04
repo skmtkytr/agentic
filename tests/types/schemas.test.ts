@@ -57,6 +57,36 @@ describe('TaskSchema', () => {
     const result = TaskSchema.safeParse({ id: 't1' });
     expect(result.success).toBe(false);
   });
+
+  it('parses task with purpose, successCriteria, and outputFormat', () => {
+    const result = TaskSchema.parse({
+      id: 'task_1',
+      description: 'Fetch ETH price',
+      purpose: 'Get current market data for analysis',
+      successCriteria: ['Price is from a reliable API', 'Includes USD and JPY'],
+      outputFormat: 'Markdown table',
+    });
+    expect(result.purpose).toBe('Get current market data for analysis');
+    expect(result.successCriteria).toEqual(['Price is from a reliable API', 'Includes USD and JPY']);
+    expect(result.outputFormat).toBe('Markdown table');
+  });
+
+  it('allows omitting purpose, successCriteria, and outputFormat', () => {
+    const result = TaskSchema.parse({ id: 't1', description: 'test' });
+    expect(result.purpose).toBeUndefined();
+    expect(result.successCriteria).toBeUndefined();
+    expect(result.outputFormat).toBeUndefined();
+  });
+
+  it('allows empty successCriteria array', () => {
+    const result = TaskSchema.parse({ id: 't1', description: 'test', successCriteria: [] });
+    expect(result.successCriteria).toEqual([]);
+  });
+
+  it('allows empty outputFormat string', () => {
+    const result = TaskSchema.parse({ id: 't1', description: 'test', outputFormat: '' });
+    expect(result.outputFormat).toBe('');
+  });
 });
 
 describe('TaskPlanSchema', () => {
@@ -81,6 +111,27 @@ describe('TaskPlanSchema', () => {
       tasks: [{ id: 't1', description: 'task' }],
     });
     expect(result.success).toBe(false);
+  });
+
+  it('parses plan with userIntent and qualityGuidelines', () => {
+    const result = TaskPlanSchema.parse({
+      planSummary: 'A plan',
+      userIntent: 'User wants to know current ETH price for investment decision',
+      qualityGuidelines: 'Use real-time data, cite sources',
+      tasks: [{ id: 't1', description: 'task', purpose: 'get data', successCriteria: ['accurate'] }],
+    });
+    expect(result.userIntent).toBe('User wants to know current ETH price for investment decision');
+    expect(result.qualityGuidelines).toBe('Use real-time data, cite sources');
+    expect(result.tasks[0].purpose).toBe('get data');
+  });
+
+  it('allows omitting userIntent and qualityGuidelines', () => {
+    const result = TaskPlanSchema.parse({
+      planSummary: 'A plan',
+      tasks: [{ id: 't1', description: 'task' }],
+    });
+    expect(result.userIntent).toBeUndefined();
+    expect(result.qualityGuidelines).toBeUndefined();
   });
 });
 

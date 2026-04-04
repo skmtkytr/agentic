@@ -95,6 +95,39 @@ describe('plannerActivity', () => {
     expect(result.plan.planSummary).toBe('A plan');
   });
 
+  it('parses plan with new intent-driven fields', async () => {
+    const planJson = JSON.stringify({
+      planSummary: 'Intent-driven plan',
+      userIntent: 'User wants ETH price for investment',
+      qualityGuidelines: 'Use real-time data',
+      tasks: [
+        {
+          id: 'task_1',
+          description: 'Fetch ETH price',
+          purpose: 'Get market data',
+          successCriteria: ['Data from reliable API', 'Includes USD price'],
+          outputFormat: 'Markdown table',
+          dependsOn: [],
+          status: 'pending',
+          reviewPassed: false,
+        },
+      ],
+    });
+
+    setupQueryMock(planJson);
+
+    const result = (await env.run(plannerActivity, {
+      prompt: 'Get ETH price',
+      model: 'claude-opus-4-6',
+    })) as PlannerResponse;
+
+    expect(result.plan.userIntent).toBe('User wants ETH price for investment');
+    expect(result.plan.qualityGuidelines).toBe('Use real-time data');
+    expect(result.plan.tasks[0].purpose).toBe('Get market data');
+    expect(result.plan.tasks[0].successCriteria).toEqual(['Data from reliable API', 'Includes USD price']);
+    expect(result.plan.tasks[0].outputFormat).toBe('Markdown table');
+  });
+
   it('strips markdown code fences before parsing', async () => {
     const planJson = JSON.stringify({
       planSummary: 'A plan',
@@ -111,5 +144,28 @@ describe('plannerActivity', () => {
     })) as PlannerResponse;
 
     expect(result.plan.tasks).toHaveLength(1);
+  });
+
+  it('handles legacy plan without new intent-driven fields', async () => {
+    const legacyPlanJson = JSON.stringify({
+      planSummary: 'Legacy plan',
+      tasks: [
+        { id: 'task_1', description: 'Old-style task', dependsOn: [], status: 'pending', reviewPassed: false },
+      ],
+    });
+
+    setupQueryMock(legacyPlanJson);
+
+    const result = (await env.run(plannerActivity, {
+      prompt: 'Legacy request',
+      model: 'claude-opus-4-6',
+    })) as PlannerResponse;
+
+    expect(result.plan.tasks).toHaveLength(1);
+    expect(result.plan.userIntent).toBeUndefined();
+    expect(result.plan.qualityGuidelines).toBeUndefined();
+    expect(result.plan.tasks[0].purpose).toBeUndefined();
+    expect(result.plan.tasks[0].successCriteria).toBeUndefined();
+    expect(result.plan.tasks[0].outputFormat).toBeUndefined();
   });
 });

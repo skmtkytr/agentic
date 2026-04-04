@@ -79,6 +79,8 @@ export async function integrationReviewerActivity(
   "revisedResponse": "string（日本語、optional）"
 }`,
     userContent: `元のリクエスト: ${req.originalPrompt}
+${req.planContext?.userIntent ? `\nユーザーの意図: ${req.planContext.userIntent}` : ''}
+${req.planContext?.qualityGuidelines ? `品質指針: ${req.planContext.qualityGuidelines}` : ''}
 
 レビュー対象の統合回答:
 ${responseSection}

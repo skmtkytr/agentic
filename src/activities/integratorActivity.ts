@@ -44,6 +44,8 @@ export async function integratorActivity(req: IntegratorRequest): Promise<Integr
 - 情報源が不明なデータは「出典未確認」と注記してください`,
     allowedTools: tools.length > 0 ? tools : undefined,
     userContent: `元のリクエスト: ${req.originalPrompt}
+${req.planContext?.userIntent ? `\nユーザーの意図: ${req.planContext.userIntent}` : ''}
+${req.planContext?.qualityGuidelines ? `品質指針: ${req.planContext.qualityGuidelines}` : ''}
 
 統合対象のタスク実行結果:
 

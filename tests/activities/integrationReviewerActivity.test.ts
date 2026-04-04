@@ -160,4 +160,38 @@ describe('integrationReviewerActivity', () => {
       }),
     ).rejects.toThrow(/Schema validation failed/);
   });
+
+  it('includes planContext.userIntent and qualityGuidelines in prompt', async () => {
+    setupQueryMock(
+      JSON.stringify({ passed: true, notes: 'ok', score: mockScore, strengths: [], improvements: [] }),
+    );
+
+    await env.run(integrationReviewerActivity, {
+      originalPrompt: 'Test',
+      integratedResponse: 'response',
+      model: 'test',
+      planContext: {
+        userIntent: 'Investment decision making',
+        qualityGuidelines: 'Real-time data required',
+      },
+    });
+
+    const prompt = mockQuery.mock.calls[0][0].prompt;
+    expect(prompt).toContain('Investment decision making');
+    expect(prompt).toContain('Real-time data required');
+  });
+
+  it('works without planContext', async () => {
+    setupQueryMock(
+      JSON.stringify({ passed: true, notes: 'ok', score: mockScore, strengths: [], improvements: [] }),
+    );
+
+    const result = (await env.run(integrationReviewerActivity, {
+      originalPrompt: 'Test',
+      integratedResponse: 'response',
+      model: 'test',
+    })) as IntegrationReviewerResponse;
+
+    expect(result.passed).toBe(true);
+  });
 });

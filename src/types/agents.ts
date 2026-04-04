@@ -1,5 +1,10 @@
 import type { Task, TaskPlan, ValidationResult } from './task';
 
+export interface PlanContext {
+  userIntent?: string;
+  qualityGuidelines?: string;
+}
+
 export interface ToolUsageRecord {
   tool: string;
   input: string;
@@ -42,6 +47,7 @@ export interface ExecutorRequest {
   provider?: string;
   allowedTools?: string[];
   workflowId?: string;
+  planContext?: PlanContext;
 }
 
 export interface ExecutorResponse {
@@ -77,6 +83,7 @@ export interface IntegratorRequest {
   provider?: string;
   allowedTools?: string[];
   workflowId?: string;
+  planContext?: PlanContext;
 }
 
 export interface IntegratorResponse {
@@ -91,6 +98,7 @@ export interface IntegrationReviewerRequest {
   model: string;
   provider?: string;
   toolEvidence?: ToolEvidenceEntry[];
+  planContext?: PlanContext;
 }
 
 export interface ReviewScore {

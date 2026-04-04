@@ -8,7 +8,7 @@ import {
 } from '@temporalio/workflow';
 import type { Activities } from '../activities/index';
 import type { Task } from '../types/task';
-import type { ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
+import type { PlanContext, ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
 import type { AgentRole, ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
 
 // --- Activity proxies with distinct retry policies ---
@@ -60,6 +60,7 @@ async function executeDag(
   maxParallelTasks: number,
   emit: (kind: ActivityEventKind, summary: string, taskId?: string, taskDescription?: string) => void,
   maxTaskRetries: number = 0,
+  planContext?: PlanContext,
 ): Promise<void> {
   const originalPrompt = input.prompt;
   const allowedTools = input.allowedTools;
@@ -119,6 +120,7 @@ async function executeDag(
             provider: executorCfg.provider,
             allowedTools,
             workflowId,
+            planContext,
           });
 
           task.result = execResult.result;
@@ -294,7 +296,11 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     const resultFilePaths = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
     const maxTaskRetries = input.maxTaskRetries ?? 0;
-    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input, maxParallelTasks, emit, maxTaskRetries);
+    const planContext: PlanContext = {
+      userIntent: finalPlan.userIntent,
+      qualityGuidelines: finalPlan.qualityGuidelines,
+    };
+    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input, maxParallelTasks, emit, maxTaskRetries, planContext);
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
@@ -320,6 +326,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       provider: integratorCfg.provider,
       allowedTools: input.allowedTools,
       workflowId: input.workflowId,
+      planContext,
     });
     emit('integrator_done', '統合完了');
 
@@ -336,6 +343,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       model: integrationReviewerCfg.model,
       provider: integrationReviewerCfg.provider,
       toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
+      planContext,
     });
     emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);
 

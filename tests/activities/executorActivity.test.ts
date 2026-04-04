@@ -202,4 +202,100 @@ describe('executorActivity', () => {
 
     expect(result.result).toBe('');
   });
+
+  it('includes task guidance and planContext in prompt', async () => {
+    let receivedPrompt = '';
+    let receivedSystem = '';
+    mockQuery.mockImplementation(async function* (params: any) {
+      receivedPrompt = params.prompt;
+      receivedSystem = params.options?.systemPrompt ?? '';
+      yield { result: 'done' } as never;
+    } as any);
+
+    await env.run(executorActivity, {
+      task: makeTask({
+        purpose: 'Get reliable price data',
+        successCriteria: ['Use CoinGecko API', 'Include JPY'],
+        outputFormat: 'Markdown table',
+      }),
+      completedTaskResults: [],
+      originalPrompt: 'Get ETH price',
+      model: 'test',
+      planContext: {
+        userIntent: 'Investment decision',
+        qualityGuidelines: 'Real-time data required',
+      },
+    });
+
+    expect(receivedPrompt).toContain('目的: Get reliable price data');
+    expect(receivedPrompt).toContain('Use CoinGecko API');
+    expect(receivedPrompt).toContain('出力形式: Markdown table');
+    expect(receivedSystem).toContain('Investment decision');
+    expect(receivedSystem).toContain('Real-time data required');
+  });
+
+  it('works without planContext or task guidance', async () => {
+    setupQueryMock('result without guidance');
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ExecutorResponse;
+
+    expect(result.result).toBe('result without guidance');
+  });
+
+  it('includes task guidance but no planContext', async () => {
+    let receivedPrompt = '';
+    let receivedSystem = '';
+    mockQuery.mockImplementation(async function* (params: any) {
+      receivedPrompt = params.prompt;
+      receivedSystem = params.options?.systemPrompt ?? '';
+      yield { result: 'done' } as never;
+    } as any);
+
+    await env.run(executorActivity, {
+      task: makeTask({
+        purpose: 'Get price data',
+        successCriteria: ['Current rate', 'From API'],
+        outputFormat: 'JSON',
+      }),
+      completedTaskResults: [],
+      originalPrompt: 'Get data',
+      model: 'test',
+    });
+
+    expect(receivedPrompt).toContain('目的: Get price data');
+    expect(receivedPrompt).toContain('Current rate');
+    expect(receivedPrompt).toContain('出力形式: JSON');
+    expect(receivedSystem).not.toContain('ユーザーの意図');
+    expect(receivedSystem).not.toContain('品質指針');
+  });
+
+  it('includes planContext but no task guidance fields', async () => {
+    let receivedPrompt = '';
+    let receivedSystem = '';
+    mockQuery.mockImplementation(async function* (params: any) {
+      receivedPrompt = params.prompt;
+      receivedSystem = params.options?.systemPrompt ?? '';
+      yield { result: 'done' } as never;
+    } as any);
+
+    await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Simple task',
+      model: 'test',
+      planContext: {
+        userIntent: 'Important context',
+        qualityGuidelines: 'High standards',
+      },
+    });
+
+    expect(receivedSystem).toContain('Important context');
+    expect(receivedSystem).toContain('High standards');
+    expect(receivedPrompt).not.toContain('タスク固有の指針');
+  });
 });

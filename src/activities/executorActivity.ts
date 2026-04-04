@@ -26,12 +26,30 @@ export async function executorActivity(req: ExecutorRequest): Promise<ExecutorRe
 ツールが使えない場合は、その旨を正直に報告してください。`
     : `\n\n注意: 外部ツールは使用できません。知識の範囲内で回答してください。リアルタイムデータや外部情報が必要な場合は、その旨を明記してください。`;
 
+  // Build task-specific guidance from Planner output
+  const task = req.task;
+  const taskGuidance = [
+    task.purpose ? `目的: ${task.purpose}` : '',
+    task.successCriteria?.length ? `成功基準:\n${task.successCriteria.map(c => `- ${c}`).join('\n')}` : '',
+    task.outputFormat ? `出力形式: ${task.outputFormat}` : '',
+  ].filter(Boolean).join('\n');
+
+  const guidanceSection = taskGuidance ? `\n\nタスク固有の指針:\n${taskGuidance}` : '';
+
+  const intentSection = req.planContext?.userIntent
+    ? `\nユーザーの意図: ${req.planContext.userIntent}`
+    : '';
+
+  const qualitySection = req.planContext?.qualityGuidelines
+    ? `\n品質指針: ${req.planContext.qualityGuidelines}`
+    : '';
+
   const { text, toolUsage } = await callRawText({
     provider: req.provider,
     model: req.model,
     system: `あなたはタスク実行エージェントです。割り当てられたタスクを完遂してください。
-ユーザーの元のリクエストはコンテキストとして提供されます。自分に割り当てられたタスクに集中し、高品質で完全な結果を日本語で出力してください。${toolInstruction}${contextSection}`,
-    userContent: `元のリクエスト: ${req.originalPrompt}\n\nあなたのタスク: ${req.task.description}\n\nこのタスクを日本語で徹底的に完遂してください。`,
+ユーザーの元のリクエストはコンテキストとして提供されます。自分に割り当てられたタスクに集中し、高品質で完全な結果を日本語で出力してください。${intentSection}${qualitySection}${toolInstruction}${contextSection}`,
+    userContent: `元のリクエスト: ${req.originalPrompt}\n\nあなたのタスク: ${task.description}${guidanceSection}\n\nこのタスクを日本語で徹底的に完遂してください。`,
     allowedTools: req.allowedTools,
   });
 

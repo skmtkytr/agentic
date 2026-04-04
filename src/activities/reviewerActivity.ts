@@ -27,6 +27,7 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
 2. 結果が正確で論理的に妥当か
 3. 明らかなエラーや欠落がないか
 4. ツール使用が必要なタスクの場合、実際にツールで取得したデータに基づいているか（ハルシネーションではないか）
+${req.task.successCriteria?.length ? `\nこのタスク固有の成功基準（必ずすべて確認してください）:\n${req.task.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : ''}
 
 結果が許容可能な場合: { "passed": true, "notes": "日本語で品質サマリー" }
 軽微な問題を修正できる場合: { "passed": true, "notes": "日本語で修正内容", "revisedResult": "修正後の結果（日本語）" }
