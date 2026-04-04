@@ -370,6 +370,62 @@ describe('executorActivity', () => {
     expect(result.resultFilePath).toBeUndefined();
   });
 
+  // --- Fallback result from tool outputs ---
+
+  it('constructs fallback result from tool outputs when text is empty', async () => {
+    const toolUsage = [
+      { tool: 'WebSearch', input: 'ETH price', output: 'ETH: $1800', timestamp: 1 },
+      { tool: 'WebFetch', input: 'https://example.com', output: 'Page content...', timestamp: 2 },
+    ];
+    setupMock('', toolUsage);
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask({ description: 'Get ETH price' }),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+      workflowId: 'wf-fallback',
+    })) as ExecutorResponse;
+
+    // Fallback result should contain tool outputs
+    expect(result.result).toContain('WebSearch');
+    expect(result.result).toContain('ETH: $1800');
+    expect(result.result).toContain('WebFetch');
+    expect(result.result).toContain('Page content...');
+    expect(result.result).toContain('Get ETH price');
+    // Should still write to file
+    expect(mockWriteTaskResult).toHaveBeenCalledWith('wf-fallback', 'task-1', expect.stringContaining('ETH: $1800'));
+  });
+
+  it('does not use fallback when text is non-empty', async () => {
+    const toolUsage = [
+      { tool: 'WebSearch', input: 'test', output: 'data', timestamp: 1 },
+    ];
+    setupMock('Actual result text', toolUsage);
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ExecutorResponse;
+
+    expect(result.result).toBe('Actual result text');
+  });
+
+  it('does not use fallback when both text and toolUsage are empty', async () => {
+    setupMock('');
+
+    const result = (await env.run(executorActivity, {
+      task: makeTask(),
+      completedTaskResults: [],
+      originalPrompt: 'Test',
+      model: 'test',
+    })) as ExecutorResponse;
+
+    expect(result.result).toBe('');
+  });
+
   it('does not write evidence when no toolUsage', async () => {
     setupMock('result');
 
