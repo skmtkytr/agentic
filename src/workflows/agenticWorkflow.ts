@@ -59,6 +59,7 @@ async function executeDag(
   completedResults: Map<string, string>,
   resultFilePaths: Map<string, string>,
   allToolEvidence: ToolEvidenceEntry[],
+  toolEvidenceFilePaths: string[],
   state: WorkflowState,
   input: WorkflowInput,
   maxParallelTasks: number,
@@ -141,6 +142,9 @@ async function executeDag(
                 output: tu.output,
               });
             }
+            if (execResult.toolEvidenceFilePath) {
+              toolEvidenceFilePaths.push(execResult.toolEvidenceFilePath);
+            }
           } else {
             emit('executor_done', `実行完了${attemptSuffix}: ${task.description}`, task.id, task.description);
           }
@@ -154,6 +158,7 @@ async function executeDag(
             model: reviewerCfg.model,
             provider: reviewerCfg.provider,
             toolUsage: taskToolUsage,
+            toolEvidenceFilePath: execResult.toolEvidenceFilePath,
           });
 
           task.reviewPassed = review.passed;
@@ -313,12 +318,13 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     const completedResults = new Map<string, string>();
     const resultFilePaths = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
+    const toolEvidenceFilePaths: string[] = [];
     const maxTaskRetries = input.maxTaskRetries ?? 1;
     const planContext: PlanContext = {
       userIntent: finalPlan.userIntent,
       qualityGuidelines: finalPlan.qualityGuidelines,
     };
-    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, state, input, maxParallelTasks, emit, maxTaskRetries, planContext);
+    await executeDag(tasks, completedResults, resultFilePaths, allToolEvidence, toolEvidenceFilePaths, state, input, maxParallelTasks, emit, maxTaskRetries, planContext);
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
@@ -361,6 +367,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       model: integrationReviewerCfg.model,
       provider: integrationReviewerCfg.provider,
       toolEvidence: allToolEvidence.length > 0 ? allToolEvidence : undefined,
+      toolEvidenceFilePaths: toolEvidenceFilePaths.length > 0 ? toolEvidenceFilePaths : undefined,
       planContext,
     });
     emit('integration_reviewer_done', `統合レビュー${integrationReview.passed ? '通過' : '却下'}: ${integrationReview.notes.slice(0, 100)}`);

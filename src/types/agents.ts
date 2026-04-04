@@ -69,6 +69,7 @@ export interface ReviewerRequest {
   model: string;
   provider?: string;
   toolUsage?: ToolUsageRecord[];
+  toolEvidenceFilePath?: string;
 }
 
 export interface ReviewerResponse {
@@ -101,6 +102,7 @@ export interface IntegrationReviewerRequest {
   model: string;
   provider?: string;
   toolEvidence?: ToolEvidenceEntry[];
+  toolEvidenceFilePaths?: string[];
   planContext?: PlanContext;
 }
 

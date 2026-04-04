@@ -10,9 +10,11 @@ export async function integrationReviewerActivity(
   req: IntegrationReviewerRequest,
 ): Promise<IntegrationReviewerResponse> {
   const hasFilePath = !!req.integratedResponseFilePath;
+  const hasEvidenceFiles = req.toolEvidenceFilePaths && req.toolEvidenceFilePaths.length > 0;
   log.info('Integration reviewer started', {
     responseLength: req.integratedResponse.length,
     toolEvidenceCount: req.toolEvidence?.length ?? 0,
+    toolEvidenceFileCount: req.toolEvidenceFilePaths?.length ?? 0,
     hasFilePath,
     provider: req.provider ?? 'default',
     model: req.model,
@@ -30,18 +32,33 @@ export async function integrationReviewerActivity(
         return req.integratedResponse;
       })();
 
-  const MAX_EVIDENCE = 10;
-  const toolEvidenceSection = req.toolEvidence && req.toolEvidence.length > 0
-    ? `\nツール使用証跡 (${req.toolEvidence.length}件):\n${req.toolEvidence.slice(0, MAX_EVIDENCE).map((e) => `- [${e.taskDescription.slice(0, 40)}] ${e.tool}: ${e.input.slice(0, 60)}`).join('\n')}${req.toolEvidence.length > MAX_EVIDENCE ? `\n... 他${req.toolEvidence.length - MAX_EVIDENCE}件` : ''}`
-    : '';
+  // Tool evidence: prefer files (full data) over inline summary
+  let toolEvidenceSection = '';
+  if (hasEvidenceFiles) {
+    toolEvidenceSection = `\nツール使用の証跡ファイル一覧（各タスクのJSON）。Read ツールで必要に応じて読み取り、統合回答のファクトチェックに使用してください:\n${req.toolEvidenceFilePaths!.map(p => `- ${p}`).join('\n')}`;
+  } else if (req.toolEvidence && req.toolEvidence.length > 0) {
+    const MAX_EVIDENCE = 10;
+    toolEvidenceSection = `\nツール使用証跡 (${req.toolEvidence.length}件):\n${req.toolEvidence.slice(0, MAX_EVIDENCE).map((e) => `- [${e.taskDescription.slice(0, 40)}] ${e.tool}: ${e.input.slice(0, 60)} → ${e.output.slice(0, 100)}`).join('\n')}${req.toolEvidence.length > MAX_EVIDENCE ? `\n... 他${req.toolEvidence.length - MAX_EVIDENCE}件` : ''}`;
+  }
+
+  // Need Read tool if we have any file paths
+  const needsRead = !!(hasFilePath || hasEvidenceFiles);
 
   const result = await callStructured(IntegrationReviewerResultSchema, {
     provider: req.provider,
     model: req.model,
-    allowedTools: hasFilePath ? ['Read'] : undefined,
+    allowedTools: needsRead ? ['Read'] : undefined,
     system: `あなたは最終品質保証エージェントです。統合された回答をユーザーの元のリクエストに対して多角的に評価してください。
 
-評価カテゴリ（各1〜5点）:
+## ファクトチェック手順
+
+ツール証跡ファイルが提供されている場合:
+1. Read ツールで証跡ファイル（JSON）を読み取る
+2. 統合回答に含まれるデータが、ツール出力に基づいているか検証する
+3. ツール出力にないデータが統合回答に含まれていないか（ハルシネーション検出）
+4. ツールがエラーを返したデータに依存した記述がないかチェックする
+
+## 評価カテゴリ（各1〜5点）:
 - completeness: リクエストへの網羅性（全ての要求に対応しているか）
 - accuracy: 正確性（事実誤認・矛盾がないか、ソースが明記されているか）
 - structure: 構造・読みやすさ（論理的な流れ、Markdown構造、見やすさ）

@@ -4,22 +4,28 @@ import { ReviewerResultSchema } from '../types/schemas';
 import type { ReviewerRequest, ReviewerResponse } from '../types/agents';
 
 export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerResponse> {
-  log.info('Reviewer started', { taskId: req.task.id, hasFilePath: !!req.resultFilePath, provider: req.provider ?? 'default', model: req.model });
+  log.info('Reviewer started', { taskId: req.task.id, hasFilePath: !!req.resultFilePath, hasEvidenceFile: !!req.toolEvidenceFilePath, provider: req.provider ?? 'default', model: req.model });
 
   // If file path available, instruct LLM to read file instead of embedding full text
   const resultSection = req.resultFilePath
     ? `実行結果はファイルに保存されています。Read ツールで以下のファイルを読んでからレビューしてください:\n${req.resultFilePath}`
     : `レビュー対象の実行結果:\n${req.result}`;
 
-  const toolEvidenceSection = req.toolUsage && req.toolUsage.length > 0
-    ? `\nツール使用の証跡:\n${req.toolUsage.map((t) => `- ${t.tool}: 入力="${t.input}" → 出力="${t.output.slice(0, 200)}"`).join('\n')}`
-    : '';
+  // Tool evidence: prefer file (full data) over inline (truncated)
+  let toolEvidenceSection = '';
+  if (req.toolEvidenceFilePath) {
+    toolEvidenceSection = `\nツール使用の証跡ファイル（JSON形式）。Read ツールで読み取り、実行結果のファクトチェックに使用してください:\n${req.toolEvidenceFilePath}`;
+  } else if (req.toolUsage && req.toolUsage.length > 0) {
+    toolEvidenceSection = `\nツール使用の証跡:\n${req.toolUsage.map((t) => `- ${t.tool}: 入力="${t.input}" → 出力="${t.output.slice(0, 200)}"`).join('\n')}`;
+  }
+
+  // Need Read tool if we have file paths to read
+  const needsRead = !!(req.resultFilePath || req.toolEvidenceFilePath);
 
   const result = await callStructured(ReviewerResultSchema, {
     provider: req.provider,
     model: req.model,
-    // Allow Read tool so LLM can read the result file
-    allowedTools: req.resultFilePath ? ['Read'] : undefined,
+    allowedTools: needsRead ? ['Read'] : undefined,
     system: `あなたは品質レビューエージェントです。タスクの実行結果が完全かつ正確かを評価してください。
 
 評価基準:
@@ -28,6 +34,14 @@ export async function reviewerActivity(req: ReviewerRequest): Promise<ReviewerRe
 3. 明らかなエラーや欠落がないか
 4. ツール使用が必要なタスクの場合、実際にツールで取得したデータに基づいているか（ハルシネーションではないか）
 ${req.task.successCriteria?.length ? `\nこのタスク固有の成功基準（必ずすべて確認してください）:\n${req.task.successCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : ''}
+
+## ファクトチェック手順
+
+ツール証跡ファイルが提供されている場合:
+1. まず Read ツールでツール証跡ファイル（JSON）を読み取る
+2. 各ツール呼び出しの input（何を検索/取得したか）と output（何が返ってきたか）を確認する
+3. 実行結果がツール出力に基づいているか、ハルシネーション（ツール出力にないデータの捏造）がないかを検証する
+4. ツールがエラーを返している場合、そのデータに依存した記述がないかチェックする
 
 ## 判定ルール
 
