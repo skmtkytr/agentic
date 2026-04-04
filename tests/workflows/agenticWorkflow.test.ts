@@ -977,4 +977,67 @@ describe('agenticWorkflow', () => {
     // D must be last
     expect(executionOrder[3]).toBe(idD);
   }, 60_000);
+
+  // --- Integration: completedTaskResults context passing ---
+
+  it('passes prior task result as completedTaskResults to dependent executor', async () => {
+    const idA = randomUUID();
+    const idB = randomUUID();
+    let bReceivedContext: Array<{ taskId: string; description: string; result: string }> = [];
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'A then B',
+          tasks: [
+            makeTask({ id: idA, description: 'Task A' }),
+            makeTask({ id: idB, description: 'Task B', dependsOn: [idA] }),
+          ],
+        },
+      }),
+      executorActivity: async (req) => {
+        if (req.task.id === idB) {
+          bReceivedContext = req.completedTaskResults;
+        }
+        return { taskId: req.task.id, result: `Result of ${req.task.description}` };
+      },
+    };
+
+    await runWorkflow(activities);
+
+    expect(bReceivedContext).toHaveLength(1);
+    expect(bReceivedContext[0].taskId).toBe(idA);
+    expect(bReceivedContext[0].result).toBe('Result of Task A');
+  }, 60_000);
+
+  // --- Integration: retry description modification ---
+
+  it('appends reviewer feedback to task description on retry', async () => {
+    let execAttempts = 0;
+    let retryDescription = '';
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => {
+        execAttempts++;
+        if (execAttempts === 2) {
+          retryDescription = req.task.description;
+        }
+        return { taskId: req.task.id, result: `attempt ${execAttempts}` };
+      },
+      reviewerActivity: async (req) => {
+        if (execAttempts <= 1) {
+          return { taskId: req.task.id, passed: false, notes: 'データソースが不正確です' };
+        }
+        return { taskId: req.task.id, passed: true, notes: 'Fixed' };
+      },
+    };
+
+    await runWorkflow(activities, { prompt: 'Test retry desc', maxTaskRetries: 1 });
+
+    expect(execAttempts).toBe(2);
+    expect(retryDescription).toContain('データソースが不正確です');
+    expect(retryDescription).toContain('前回の実行がレビューで却下されました');
+  }, 60_000);
 });

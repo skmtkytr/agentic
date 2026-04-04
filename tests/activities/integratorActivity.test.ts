@@ -219,4 +219,34 @@ describe('integratorActivity', () => {
     expect(result.integratedResponseFilePath).toBeUndefined();
   });
 
+  // --- Edge cases ---
+
+  it('handles empty reviewedTasks array', async () => {
+    setupMock('integrated from nothing');
+
+    const result = (await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [],
+      model: 'test',
+    })) as IntegratorResponse;
+
+    expect(result.integratedResponse).toBe('integrated from nothing');
+    expect(mockCallRawText).toHaveBeenCalledTimes(1);
+  });
+
+  // --- System prompt content ---
+
+  it('system prompt defines integrator role and source citation instructions', async () => {
+    setupMock('result');
+
+    await env.run(integratorActivity, {
+      originalPrompt: 'Test',
+      reviewedTasks: [makeTask()],
+      model: 'test',
+    });
+
+    const opts = mockCallRawText.mock.calls[0][0];
+    expect(opts.system).toContain('統合エージェント');
+    expect(opts.system).toContain('情報源');
+  });
 });

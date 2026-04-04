@@ -146,4 +146,30 @@ describe('plannerActivity', () => {
     expect(result.plan.tasks[0].purpose).toBeUndefined();
     expect(result.plan.tasks[0].successCriteria).toBeUndefined();
   });
+
+  it('remaps multi-dependency IDs correctly (task_3 depends on task_1 and task_2)', async () => {
+    mockCallStructured.mockResolvedValue({
+      planSummary: 'Diamond',
+      tasks: [
+        { id: 'task_1', description: 'A', dependsOn: [], status: 'pending', reviewPassed: false },
+        { id: 'task_2', description: 'B', dependsOn: [], status: 'pending', reviewPassed: false },
+        { id: 'task_3', description: 'C', dependsOn: ['task_1', 'task_2'], status: 'pending', reviewPassed: false },
+      ],
+    });
+
+    const result = (await env.run(plannerActivity, {
+      prompt: 'Test',
+      model: 'test',
+    })) as PlannerResponse;
+
+    const [t1, t2, t3] = result.plan.tasks;
+    expect(t3.dependsOn).toHaveLength(2);
+    expect(t3.dependsOn).toContain(t1.id);
+    expect(t3.dependsOn).toContain(t2.id);
+    // All IDs are UUIDs
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    for (const t of result.plan.tasks) {
+      expect(t.id).toMatch(uuidRegex);
+    }
+  });
 });
