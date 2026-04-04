@@ -42,7 +42,7 @@
     { id: 'ToolSearch', label: 'ToolSearch', desc: 'ツール検索', icon: '🧰' },
   ] as const;
 
-  type AgentRole = 'planner' | 'validator' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
+  type AgentRole = 'planner' | 'taskDesigner' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
   interface AgentLLMConfig { provider?: string; model?: string; }
 
   const AGENT_ROLES: { role: AgentRole; label: string; icon: string; needsTools: boolean }[] = [
@@ -437,9 +437,9 @@
                 {#if cur>=1}<div class="pipe-line-fill"></div>{/if}
                 {#if cur===0}<div class="particle p1"></div><div class="particle p2"></div><div class="particle p3"></div>{/if}
               </div>
-              <div class="pipe-node" class:done={cur>1} class:active={cur===1} style="--node-color:{PHASE_META.validating.color}">
-                <div class="pipe-icon">{PHASE_META.validating.icon}</div>
-                <div class="pipe-label">{PHASE_META.validating.label}</div>
+              <div class="pipe-node" class:done={cur>1} class:active={cur===1} style="--node-color:{PHASE_META.designing.color}">
+                <div class="pipe-icon">{PHASE_META.designing.icon}</div>
+                <div class="pipe-label">{PHASE_META.designing.label}</div>
                 {#if cur===1}<div class="pipe-glow"></div>{/if}
               </div>
             </div>

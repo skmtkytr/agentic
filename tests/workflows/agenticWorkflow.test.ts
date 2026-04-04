@@ -135,7 +135,7 @@ describe('agenticWorkflow', () => {
     expect(result.tasks[0].reviewPassed).toBe(false);
   }, 60_000);
 
-  it('fails the workflow when plan validation returns invalid', async () => {
+  it('fails the workflow when task design returns invalid', async () => {
     const activities: Activities = {
       ...defaultMockActivities,
       taskDesignerActivity: async () => ({
