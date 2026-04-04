@@ -503,7 +503,7 @@ describe('agenticWorkflow', () => {
     expect(result.pipelineAttempt).toBe(2); // initial + 1 retry
   }, 120_000);
 
-  it('does not retry when maxPipelineRetries is 0 (default)', async () => {
+  it('does not retry when maxPipelineRetries is explicitly 0', async () => {
     let plannerCalls = 0;
     const activities: Activities = {
       ...defaultMockActivities,
@@ -520,7 +520,7 @@ describe('agenticWorkflow', () => {
       }),
     };
 
-    const result = await runWorkflow(activities, { prompt: 'No retry' });
+    const result = await runWorkflow(activities, { prompt: 'No retry', maxPipelineRetries: 0 });
 
     expect(plannerCalls).toBe(1);
     expect(result.integrationReviewPassed).toBe(false);
@@ -575,7 +575,7 @@ describe('agenticWorkflow', () => {
     expect(result.tasks[0].status).toBe('rejected');
   }, 60_000);
 
-  it('does not retry tasks when maxTaskRetries is 0 (default)', async () => {
+  it('does not retry tasks when maxTaskRetries is explicitly 0', async () => {
     let execCalls = 0;
     const activities: Activities = {
       ...defaultMockActivities,
@@ -590,7 +590,7 @@ describe('agenticWorkflow', () => {
       }),
     };
 
-    const result = await runWorkflow(activities, { prompt: 'No task retry' });
+    const result = await runWorkflow(activities, { prompt: 'No task retry', maxTaskRetries: 0 });
     expect(execCalls).toBe(1);
     expect(result.tasks[0].status).toBe('rejected');
   }, 60_000);

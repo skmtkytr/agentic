@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const DEFAULT_BASE_DIR = path.join(os.tmpdir(), 'agentic');
+const DEFAULT_BASE_DIR = process.env.ARTIFACT_DIR ?? path.join(os.tmpdir(), 'agentic');
 
 export function getArtifactDir(baseDir: string, workflowId: string): string {
   return path.join(baseDir, workflowId);
@@ -20,10 +20,6 @@ export async function writeArtifact(
   const filePath = path.join(dir, filename);
   fs.writeFileSync(filePath, content, 'utf-8');
   return filePath;
-}
-
-export async function readArtifact(filePath: string): Promise<string> {
-  return fs.readFileSync(filePath, 'utf-8');
 }
 
 /**

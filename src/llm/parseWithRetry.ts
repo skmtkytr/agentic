@@ -16,11 +16,28 @@ export interface RawTextResult {
   toolUsage: ToolUsageRecord[];
 }
 
+/** Non-retryable: LLM returned invalid JSON that won't change on retry */
+export class JSONParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JSONParseError';
+  }
+}
+
+/** Non-retryable: LLM output doesn't match expected schema */
+export class SchemaValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SchemaValidationError';
+  }
+}
+
 // --- Public API ---
 
 /**
  * Call the LLM, parse the response as JSON, and validate against a Zod schema.
- * Throws on parse/validation failure → Temporal retries the activity.
+ * JSON parse and schema validation failures are non-retryable since the same
+ * input will produce the same malformed output.
  */
 export async function callStructured<T extends z.ZodTypeAny>(
   schema: T,
@@ -38,6 +55,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
   });
 
   if (!resultText) {
+    // Empty result may be transient (rate limit, timeout) — allow retry
     throw new Error('LLM returned empty result');
   }
 
@@ -51,14 +69,14 @@ export async function callStructured<T extends z.ZodTypeAny>(
   try {
     raw = JSON.parse(cleaned);
   } catch (parseErr) {
-    log.warn('JSON parse failed, activity will retry', { preview: cleaned.slice(0, 300) });
-    throw new Error(`JSON parse failed: ${(parseErr as Error).message}`);
+    log.warn('JSON parse failed (non-retryable)', { preview: cleaned.slice(0, 300) });
+    throw new JSONParseError(`JSON parse failed: ${(parseErr as Error).message}`);
   }
 
   const result = schema.safeParse(raw);
   if (!result.success) {
-    log.warn('Schema validation failed, activity will retry', { errors: result.error.issues });
-    throw new Error(`Schema validation failed: ${result.error.message}`);
+    log.warn('Schema validation failed (non-retryable)', { errors: result.error.issues });
+    throw new SchemaValidationError(`Schema validation failed: ${result.error.message}`);
   }
 
   return result.data;

@@ -58,8 +58,8 @@ export function createApp(getClient: () => Promise<Client>, webDist?: string) {
         agentConfig: mergedAgentConfig,
         maxParallelTasks: maxParallelTasks ?? 3,
         allowedTools,
-        maxPipelineRetries: maxPipelineRetries ?? 0,
-        maxTaskRetries: maxTaskRetries ?? 0,
+        maxPipelineRetries: maxPipelineRetries ?? 1,
+        maxTaskRetries: maxTaskRetries ?? 1,
         workflowId,
       };
 

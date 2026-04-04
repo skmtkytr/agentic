@@ -44,19 +44,37 @@ describe('callStructured', () => {
     expect(result.name).toBe('plain');
   });
 
-  it('throws on invalid JSON', async () => {
+  it('throws JSONParseError (non-retryable) on invalid JSON', async () => {
     setTestProvider(mockProvider('not json'));
-    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/JSON parse failed/);
+    try {
+      await callStructured(TestSchema, { system: 's', userContent: 'u' });
+      fail('Expected to throw');
+    } catch (err: any) {
+      expect(err.name).toBe('JSONParseError');
+      expect(err.message).toMatch(/JSON parse failed/);
+    }
   });
 
-  it('throws on schema validation failure', async () => {
+  it('throws SchemaValidationError (non-retryable) on schema mismatch', async () => {
     setTestProvider(mockProvider('{"name":"test","value":"not_a_number"}'));
-    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/Schema validation failed/);
+    try {
+      await callStructured(TestSchema, { system: 's', userContent: 'u' });
+      fail('Expected to throw');
+    } catch (err: any) {
+      expect(err.name).toBe('SchemaValidationError');
+      expect(err.message).toMatch(/Schema validation failed/);
+    }
   });
 
-  it('throws when result is empty', async () => {
+  it('throws plain Error (retryable) when result is empty', async () => {
     setTestProvider(mockProvider(''));
-    await expect(callStructured(TestSchema, { system: 's', userContent: 'u' })).rejects.toThrow(/LLM returned empty result/);
+    try {
+      await callStructured(TestSchema, { system: 's', userContent: 'u' });
+      fail('Expected to throw');
+    } catch (err: any) {
+      expect(err.name).toBe('Error');
+      expect(err.message).toMatch(/LLM returned empty result/);
+    }
   });
 
   it('appends JSON instruction to prompt', async () => {

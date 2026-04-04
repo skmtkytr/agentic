@@ -11,23 +11,27 @@ import type { Task } from '../types/task';
 import type { PlanContext, ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
 import type { AgentRole, PipelineAttempt, ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
 
-// --- Activity proxies with distinct retry policies ---
+// --- Activity proxies with role-specific retry policies ---
 
-// 30 min timeout — LLM calls can take minutes for complex tasks.
+const NON_RETRYABLE_ERRORS = ['AnthropicAuthError', 'JSONParseError', 'SchemaValidationError'];
+
+// Planner/Validator: structured JSON output — JSON/Schema errors are non-retryable
 const { plannerActivity, validatorActivity } = proxyActivities<Activities>({
   startToCloseTimeout: '24 hours',
-  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
+  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
 });
 
+// Executor: tool usage can be flaky — allow more retries
 const { executorActivity } = proxyActivities<Activities>({
   startToCloseTimeout: '24 hours',
-  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
+  retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 5, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
 });
 
+// Reviewer/Integrator/IntegrationReviewer: structured output
 const { reviewerActivity, integratorActivity, integrationReviewerActivity } =
   proxyActivities<Activities>({
     startToCloseTimeout: '24 hours',
-    retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: ['AnthropicAuthError'] },
+    retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
   });
 
 // --- Signals and Queries ---
@@ -192,7 +196,7 @@ async function executeDag(
 export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOutput> {
   const startTime = Date.now();
   const maxParallelTasks = input.maxParallelTasks ?? 3;
-  const maxPipelineRetries = input.maxPipelineRetries ?? 0;
+  const maxPipelineRetries = input.maxPipelineRetries ?? 1;
 
   let cancelled = false;
   const events: ActivityEvent[] = [];
@@ -248,11 +252,16 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       emit('pipeline_retry', `パイプラインリトライ (${pipelineAttempt}/${maxPipelineRetries + 1}): ${lastReviewNotes.slice(0, 80)}`);
       log.info('Pipeline retry', { attempt: pipelineAttempt, reason: lastReviewNotes.slice(0, 200) });
 
-      // Augment prompt with previous failure feedback
+      // Augment prompt with previous failure feedback including rejected task details
+      const rejectedTaskFeedback = pipelineHistory[pipelineHistory.length - 1]?.tasks
+        .filter((t) => !t.reviewPassed && t.reviewNotes)
+        .map((t) => `- ${t.description.slice(0, 60)}: ${t.reviewNotes}`)
+        .join('\n');
+
       currentPrompt = `${input.prompt}
 
 [前回の試行が統合レビューで不合格になりました。以下のフィードバックを踏まえて改善してください]
-レビュー指摘: ${lastReviewNotes}`;
+レビュー指摘: ${lastReviewNotes}${rejectedTaskFeedback ? `\n\n却下されたタスクの詳細:\n${rejectedTaskFeedback}` : ''}`;
     }
 
     // Phase 1: Plan
@@ -304,7 +313,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     const completedResults = new Map<string, string>();
     const resultFilePaths = new Map<string, string>();
     const allToolEvidence: ToolEvidenceEntry[] = [];
-    const maxTaskRetries = input.maxTaskRetries ?? 0;
+    const maxTaskRetries = input.maxTaskRetries ?? 1;
     const planContext: PlanContext = {
       userIntent: finalPlan.userIntent,
       qualityGuidelines: finalPlan.qualityGuidelines,
