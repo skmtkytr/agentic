@@ -139,6 +139,57 @@ describe('plannerActivity', () => {
     expect(result.plan.qualityGuidelines).toBeUndefined();
   });
 
+  it('system prompt includes web tool guidance when WebSearch/WebFetch are in allowedTools', async () => {
+    mockCallStructured.mockResolvedValue({
+      planSummary: 'Plan',
+      tasks: [{ id: 'task_1', description: 'task', dependsOn: [], status: 'pending', reviewPassed: false }],
+    });
+
+    await env.run(plannerActivity, {
+      prompt: 'Analyze company',
+      model: 'test',
+      allowedTools: ['Read', 'WebSearch', 'WebFetch'],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).toContain('WebSearch');
+    expect(opts.system).toContain('リアルタイムでWebから情報を取得できます');
+    expect(opts.system).toContain('具体的なデータ取得・分析タスク');
+  });
+
+  it('system prompt does not include web tool guidance when only non-web tools are allowed', async () => {
+    mockCallStructured.mockResolvedValue({
+      planSummary: 'Plan',
+      tasks: [{ id: 'task_1', description: 'task', dependsOn: [], status: 'pending', reviewPassed: false }],
+    });
+
+    await env.run(plannerActivity, {
+      prompt: 'Read files',
+      model: 'test',
+      allowedTools: ['Read', 'Bash'],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).toContain('Read');
+    expect(opts.system).not.toContain('リアルタイムでWebから情報を取得できます');
+  });
+
+  it('system prompt shows no-tool constraint when allowedTools is empty', async () => {
+    mockCallStructured.mockResolvedValue({
+      planSummary: 'Plan',
+      tasks: [{ id: 'task_1', description: 'task', dependsOn: [], status: 'pending', reviewPassed: false }],
+    });
+
+    await env.run(plannerActivity, {
+      prompt: 'Plan something',
+      model: 'test',
+      allowedTools: [],
+    });
+
+    const [_schema, opts] = mockCallStructured.mock.calls[0];
+    expect(opts.system).toContain('LLMの知識の範囲内');
+  });
+
   it('remaps multi-dependency IDs correctly (task_3 depends on task_1 and task_2)', async () => {
     mockCallStructured.mockResolvedValue({
       planSummary: 'Diamond',

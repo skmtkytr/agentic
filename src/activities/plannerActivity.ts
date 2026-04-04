@@ -7,13 +7,22 @@ export async function plannerActivity(req: PlannerRequest): Promise<PlannerRespo
   log.info('Planner started', { promptLength: req.prompt.length, provider: req.provider ?? 'default', model: req.model });
 
   const hasTools = req.allowedTools && req.allowedTools.length > 0;
+  const hasWebTools = hasTools && req.allowedTools!.some(t => t === 'WebSearch' || t === 'WebFetch');
   const toolSection = hasTools
-    ? `\n\n## 利用可能なツール
-実行エージェントは以下のツールを使用できます。これを前提にタスクを設計してください。
+    ? `\n\n## 利用可能なツール（重要）
+実行エージェントは以下のツールを**実際に使用できます**。これを前提にタスクを設計してください。
 ${req.allowedTools!.map(t => `- ${t}`).join('\n')}
+${hasWebTools ? `
+### ★ Web検索・取得について（最重要）
+WebSearch と WebFetch が利用可能です。つまり実行エージェントは**リアルタイムでWebから情報を取得できます**。
+- 「フレームワークの設計」「指標の定義」のような抽象的なタスクではなく、「WebSearchで○○を検索し、実際のデータを取得して分析する」という**具体的なデータ取得・分析タスク**にしてください
+- 例: ✗「PER/PBRの評価指標を設計する」→ ○「WebSearchで○○社の最新の財務データ(PER/PBR/ROE等)を取得し、分析する」
+- 例: ✗「競合比較フレームワークを設計する」→ ○「WebSearchで○○社の競合企業の情報を検索し、比較分析する」
+- 実在するデータの取得と分析を中心にタスクを構成してください` : ''}
 
-外部データ（価格、ニュース、Web情報等）が必要な場合、WebFetchやWebSearchが利用可能であれば「実際に取得する」タスクとして設計してください。
-「ツールがないから案内だけする」というタスクは、ツールが使える場合には不適切です。`
+タスクは「何を調べるか・何を実行するか」を具体的に記述してください。
+「設計する」「フレームワークを作る」「定義する」ではなく「取得する」「分析する」「実行する」という動詞を使ってください。
+「ツールがないから案内だけする」「一般的な説明をする」というタスクは、ツールが使える場合には不適切です。`
     : `\n\n## ツール制約
 実行エージェントには外部ツールが許可されていません。LLMの知識の範囲内で実行可能なタスクのみを設計してください。`;
 
