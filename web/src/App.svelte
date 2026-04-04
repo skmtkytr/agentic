@@ -57,7 +57,7 @@
   const PROVIDERS = [
     { id: 'claude-agent', label: 'Claude (Agent SDK)', hasTools: true },
     { id: 'local-llm', label: 'Local LLM (Agent)', hasTools: true },
-    { id: 'local-llm-direct', label: 'Local LLM (Direct)', hasTools: false },
+    { id: 'local-llm-direct', label: 'Local LLM (Direct+Tools)', hasTools: true },
     { id: 'anthropic-api', label: 'Anthropic API', hasTools: false },
   ];
 
@@ -94,7 +94,7 @@
   }
 
   function getModelsForProvider(provider: string) {
-    if (provider === 'local-llm') return localModels.map(m => ({ id: m, label: m }));
+    if (provider === 'local-llm' || provider === 'local-llm-direct') return localModels.map(m => ({ id: m, label: m }));
     return MODELS[provider] ?? [];
   }
 
