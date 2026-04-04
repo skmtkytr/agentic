@@ -792,4 +792,189 @@ describe('agenticWorkflow', () => {
       await workerRunPromise;
     }
   }, 60_000);
+
+  // --- DAG deadlock detection ---
+
+  it('throws PlanCircularDependencyError on circular dependency in DAG', async () => {
+    const idA = randomUUID();
+    const idB = randomUUID();
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'Circular plan',
+          tasks: [
+            makeTask({ id: idA, description: 'Task A', dependsOn: [idB] }),
+            makeTask({ id: idB, description: 'Task B', dependsOn: [idA] }),
+          ],
+        },
+      }),
+      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+    };
+
+    try {
+      await runWorkflow(activities);
+      fail('Expected workflow to throw');
+    } catch (err: unknown) {
+      const msg =
+        (err as { cause?: { message?: string }; message?: string }).cause?.message ??
+        (err as { message?: string }).message ??
+        '';
+      expect(msg).toMatch(/DAG execution deadlock/);
+    }
+  }, 60_000);
+
+  it('throws on self-referencing task dependency', async () => {
+    const idSelf = randomUUID();
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'Self-referencing',
+          tasks: [
+            makeTask({ id: idSelf, description: 'Self-ref', dependsOn: [idSelf] }),
+          ],
+        },
+      }),
+      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+    };
+
+    try {
+      await runWorkflow(activities);
+      fail('Expected workflow to throw');
+    } catch (err: unknown) {
+      const msg =
+        (err as { cause?: { message?: string }; message?: string }).cause?.message ??
+        (err as { message?: string }).message ??
+        '';
+      expect(msg).toMatch(/DAG execution deadlock/);
+    }
+  }, 60_000);
+
+  // --- maxParallelTasks ---
+
+  it('limits concurrent task execution to maxParallelTasks', async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    const ids = Array.from({ length: 4 }, () => randomUUID());
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'Parallel test',
+          tasks: ids.map((id, i) => makeTask({ id, description: `Task ${i + 1}` })),
+        },
+      }),
+      executorActivity: async (req) => {
+        concurrent++;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        // Simulate some async work
+        await new Promise((r) => setTimeout(r, 10));
+        concurrent--;
+        return { taskId: req.task.id, result: 'done' };
+      },
+    };
+
+    const result = await runWorkflow(activities, {
+      prompt: 'Test parallel limits',
+      maxParallelTasks: 2,
+    });
+
+    expect(result.tasks).toHaveLength(4);
+    expect(maxConcurrent).toBeLessThanOrEqual(2);
+  }, 60_000);
+
+  // --- Cancel signal ---
+
+  it('cancels workflow after planning phase via signal', async () => {
+    const taskQueue = `test-agentic-${randomUUID()}`;
+
+    // Use a slow executor to give time for signal
+    const activities: Activities = {
+      ...defaultMockActivities,
+      executorActivity: async (req) => {
+        await new Promise((r) => setTimeout(r, 5000));
+        return { taskId: req.task.id, result: 'should not reach' };
+      },
+    };
+
+    const worker = await Worker.create({
+      connection: testEnv.nativeConnection,
+      taskQueue,
+      workflowsPath: path.resolve(__dirname, '../../src/workflows/agenticWorkflow.ts'),
+      activities,
+    });
+
+    const workerRunPromise = worker.run();
+
+    try {
+      const handle = await testEnv.client.workflow.start(agenticWorkflow, {
+        taskQueue,
+        workflowId: `test-cancel-${randomUUID()}`,
+        args: [{ prompt: 'Cancel test' }],
+      });
+
+      // Small delay then cancel
+      await new Promise((r) => setTimeout(r, 100));
+      await handle.signal(cancelSignal);
+
+      try {
+        await handle.result();
+        fail('Expected workflow to throw on cancel');
+      } catch (err: unknown) {
+        const msg =
+          (err as { cause?: { message?: string }; message?: string }).cause?.message ??
+          (err as { message?: string }).message ??
+          '';
+        expect(msg).toMatch(/Cancelled by signal/);
+      }
+    } finally {
+      worker.shutdown();
+      await workerRunPromise;
+    }
+  }, 60_000);
+
+  // --- Diamond dependency DAG ---
+
+  it('executes diamond dependency (A→B,C→D) in correct order', async () => {
+    const idA = randomUUID();
+    const idB = randomUUID();
+    const idC = randomUUID();
+    const idD = randomUUID();
+    const executionOrder: string[] = [];
+
+    const activities: Activities = {
+      ...defaultMockActivities,
+      plannerActivity: async () => ({
+        plan: {
+          planSummary: 'Diamond: A→B,C→D',
+          tasks: [
+            makeTask({ id: idA, description: 'Task A', dependsOn: [] }),
+            makeTask({ id: idB, description: 'Task B', dependsOn: [idA] }),
+            makeTask({ id: idC, description: 'Task C', dependsOn: [idA] }),
+            makeTask({ id: idD, description: 'Task D', dependsOn: [idB, idC] }),
+          ],
+        },
+      }),
+      executorActivity: async (req) => {
+        executionOrder.push(req.task.id);
+        return { taskId: req.task.id, result: `Result of ${req.task.description}` };
+      },
+    };
+
+    const result = await runWorkflow(activities);
+    expect(result.tasks).toHaveLength(4);
+
+    // A must be first
+    expect(executionOrder[0]).toBe(idA);
+    // B and C can be in any order but both before D
+    expect(executionOrder.indexOf(idB)).toBeLessThan(executionOrder.indexOf(idD));
+    expect(executionOrder.indexOf(idC)).toBeLessThan(executionOrder.indexOf(idD));
+    // D must be last
+    expect(executionOrder[3]).toBe(idD);
+  }, 60_000);
 });
