@@ -30,14 +30,15 @@ if (process.env.LOCAL_LLM_BASE_URL) {
   }));
   console.log(`Registered local LLM provider (agent): ${providerName} at ${baseURL}`);
 
-  // Direct Anthropic API provider (no tools, lighter weight)
+  // Direct Anthropic API provider with native tool support (WebSearch, WebFetch, Read, Write, Bash)
   registry.register(new AnthropicApiProvider({
     name: `${providerName}-direct`,
     baseURL,
     defaultModel: process.env.LOCAL_LLM_MODEL ?? 'default',
     apiKey,
+    enableTools: true,
   }));
-  console.log(`Registered local LLM provider (direct): ${providerName}-direct at ${baseURL}`);
+  console.log(`Registered local LLM provider (direct+tools): ${providerName}-direct at ${baseURL}`);
 }
 
 if (savedAnthropicApiKey) {

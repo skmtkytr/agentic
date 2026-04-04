@@ -73,6 +73,7 @@ services:
       - LOCAL_LLM_PROVIDER_NAME=${LOCAL_LLM_PROVIDER_NAME:-local-llm}
       - LOCAL_LLM_API_KEY=${LOCAL_LLM_API_KEY:-local-llm}
       - LOCAL_LLM_FALLBACK_MODEL=${LOCAL_LLM_FALLBACK_MODEL:-}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
       - ARTIFACT_DIR=/data/artifacts
     volumes:
       - ${CLAUDE_CONFIG_DIR:-~/.config/claude}:/root/.claude
