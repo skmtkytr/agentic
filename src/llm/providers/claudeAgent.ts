@@ -73,7 +73,7 @@ export class ClaudeAgentProvider implements LLMProvider {
         ...(opts.jsonMode || !hasTools
           ? { tools: [], permissionMode: 'dontAsk' as const }
           : { allowedTools: opts.allowedTools, permissionMode: 'dontAsk' as const }),
-        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.model ? { model: opts.model, fallbackModel: opts.model } : {}),
         ...(this.disableThinking ? { thinking: { type: 'disabled' as const } } : {}),
         ...envOption,
       },
