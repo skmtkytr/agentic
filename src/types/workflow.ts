@@ -30,6 +30,13 @@ export interface WorkflowInput {
   workflowId?: string;
 }
 
+export interface PipelineAttempt {
+  attempt: number;
+  tasks: Task[];
+  integrationReviewPassed: boolean;
+  integrationReviewNotes: string;
+}
+
 export interface WorkflowOutput {
   finalResponse: string;
   integrationReviewPassed: boolean;
@@ -46,6 +53,7 @@ export interface WorkflowOutput {
   tasks: Task[];
   executionTimeMs: number;
   pipelineAttempt: number;
+  pipelineHistory?: PipelineAttempt[];
 }
 
 export type ActivityEventKind =

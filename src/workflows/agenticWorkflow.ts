@@ -9,7 +9,7 @@ import {
 import type { Activities } from '../activities/index';
 import type { Task } from '../types/task';
 import type { PlanContext, ToolEvidenceEntry, ToolUsageRecord } from '../types/agents';
-import type { AgentRole, ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
+import type { AgentRole, PipelineAttempt, ActivityEvent, ActivityEventKind, WorkflowInput, WorkflowOutput, WorkflowState } from '../types/workflow';
 
 // --- Activity proxies with distinct retry policies ---
 
@@ -174,7 +174,7 @@ async function executeDag(
           }
         }
 
-        completedResults.set(task.id, task.result!);
+        completedResults.set(task.id, task.result ?? '');
         if (lastResultFilePath) {
           resultFilePaths.set(task.id, lastResultFilePath);
         }
@@ -225,11 +225,20 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
   let lastReviewNotes = '';
   let lastIntegratedResponse = '';
   let lastReviewPassed = false;
+  const pipelineHistory: PipelineAttempt[] = [];
 
   while (pipelineAttempt <= maxPipelineRetries) {
     pipelineAttempt++;
 
     if (pipelineAttempt > 1) {
+      // Save previous attempt before clearing
+      pipelineHistory.push({
+        attempt: pipelineAttempt - 1,
+        tasks: tasks.map((t) => ({ ...t })),
+        integrationReviewPassed: lastReviewPassed,
+        integrationReviewNotes: lastReviewNotes,
+      });
+
       // Reset state for retry
       tasks.length = 0;
       state.totalTasks = 0;
@@ -366,6 +375,7 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
         tasks,
         executionTimeMs: Date.now() - startTime,
         pipelineAttempt,
+        pipelineHistory: pipelineHistory.length > 0 ? pipelineHistory : undefined,
       };
     }
 
@@ -382,5 +392,6 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
     tasks,
     executionTimeMs: Date.now() - startTime,
     pipelineAttempt,
+    pipelineHistory: pipelineHistory.length > 0 ? pipelineHistory : undefined,
   };
 }

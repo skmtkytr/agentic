@@ -99,6 +99,8 @@ describe('agenticWorkflow', () => {
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].status).toBe('reviewed');
     expect(result.tasks[0].reviewPassed).toBe(true);
+    // No pipeline history on first-attempt success
+    expect(result.pipelineHistory).toBeUndefined();
   }, 60_000);
 
   it('uses revised response from integration reviewer when provided', async () => {
@@ -469,6 +471,14 @@ describe('agenticWorkflow', () => {
     expect(attempt).toBe(2);
     expect(result.integrationReviewPassed).toBe(true);
     expect(result.pipelineAttempt).toBe(2);
+
+    // Pipeline history should contain the failed first attempt
+    expect(result.pipelineHistory).toBeDefined();
+    expect(result.pipelineHistory).toHaveLength(1);
+    expect(result.pipelineHistory![0].attempt).toBe(1);
+    expect(result.pipelineHistory![0].integrationReviewPassed).toBe(false);
+    expect(result.pipelineHistory![0].integrationReviewNotes).toContain('Quality insufficient');
+    expect(result.pipelineHistory![0].tasks).toHaveLength(1);
   }, 120_000);
 
   it('returns failed result after exhausting maxPipelineRetries', async () => {
