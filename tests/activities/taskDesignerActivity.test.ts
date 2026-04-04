@@ -1,12 +1,12 @@
 import { MockActivityEnvironment } from '@temporalio/testing';
-import type { ValidatorResponse } from '../../src/types/agents';
+import type { TaskDesignerResponse } from '../../src/types/agents';
 
 jest.mock('../../src/llm/parseWithRetry', () => ({
   callStructured: jest.fn(),
 }));
 
 import { callStructured } from '../../src/llm/parseWithRetry';
-import { validatorActivity } from '../../src/activities/validatorActivity';
+import { taskDesignerActivity } from '../../src/activities/taskDesignerActivity';
 
 const mockCallStructured = callStructured as jest.MockedFunction<typeof callStructured>;
 
@@ -17,18 +17,19 @@ const basePlan = {
   ],
 };
 
-describe('validatorActivity', () => {
+describe('taskDesignerActivity', () => {
   const env = new MockActivityEnvironment();
 
   beforeEach(() => mockCallStructured.mockReset());
 
   // --- callStructured argument verification ---
 
-  it('calls callStructured with correct provider, model, and plan in userContent', async () => {
+  it('calls callStructured with correct provider, model, and plan + originalPrompt in userContent', async () => {
     mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
 
-    await env.run(validatorActivity, {
+    await env.run(taskDesignerActivity, {
       plan: basePlan,
+      originalPrompt: 'Get ETH price',
       model: 'claude-sonnet-4-6',
       provider: 'local-llm',
     });
@@ -38,20 +39,24 @@ describe('validatorActivity', () => {
     expect(opts.model).toBe('claude-sonnet-4-6');
     expect(opts.userContent).toContain('Task 1');
     expect(opts.userContent).toContain('Test plan');
+    expect(opts.userContent).toContain('Get ETH price');
   });
 
-  it('system prompt contains validation check items', async () => {
+  it('system prompt contains validation and design instructions', async () => {
     mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
 
-    await env.run(validatorActivity, {
+    await env.run(taskDesignerActivity, {
       plan: basePlan,
+      originalPrompt: 'Test',
       model: 'test',
     });
 
     const [_schema, opts] = mockCallStructured.mock.calls[0];
-    expect(opts.system).toContain('バリデーション');
+    expect(opts.system).toContain('タスク設計エージェント');
     expect(opts.system).toContain('循環依存');
-    expect(opts.system).toContain('存在しないID');
+    expect(opts.system).toContain('purpose');
+    expect(opts.system).toContain('successCriteria');
+    expect(opts.system).toContain('outputFormat');
   });
 
   // --- Result handling ---
@@ -59,10 +64,11 @@ describe('validatorActivity', () => {
   it('returns valid result', async () => {
     mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
 
-    const result = (await env.run(validatorActivity, {
+    const result = (await env.run(taskDesignerActivity, {
       plan: basePlan,
+      originalPrompt: 'Test',
       model: 'test',
-    })) as ValidatorResponse;
+    })) as TaskDesignerResponse;
 
     expect(result.result.valid).toBe(true);
     expect(result.result.issues).toEqual([]);
@@ -74,49 +80,45 @@ describe('validatorActivity', () => {
       issues: ['Circular dependency between t1 and t2'],
     });
 
-    const result = (await env.run(validatorActivity, {
+    const result = (await env.run(taskDesignerActivity, {
       plan: basePlan,
+      originalPrompt: 'Test',
       model: 'test',
-    })) as ValidatorResponse;
+    })) as TaskDesignerResponse;
 
     expect(result.result.valid).toBe(false);
-    expect(result.result.issues).toHaveLength(1);
     expect(result.result.issues[0]).toMatch(/Circular dependency/);
   });
 
-  it('returns revisedPlan when validator corrects issues', async () => {
-    const revisedPlan = {
-      planSummary: 'Revised plan',
+  it('returns designedPlan with purpose and successCriteria', async () => {
+    const designedPlan = {
+      planSummary: 'Designed plan',
       tasks: [
-        { id: 't1', description: 'Fixed task', dependsOn: [], status: 'pending' as const, reviewPassed: false },
-        { id: 't2', description: 'New task', dependsOn: ['t1'], status: 'pending' as const, reviewPassed: false },
+        {
+          id: 't1', description: 'Fetch ETH price', dependsOn: [],
+          status: 'pending' as const, reviewPassed: false,
+          purpose: 'Get current market data',
+          successCriteria: ['Data from CoinGecko API', 'Includes USD and JPY'],
+          outputFormat: 'Markdown table',
+        },
       ],
     };
 
     mockCallStructured.mockResolvedValue({
       valid: true,
-      issues: ['Added missing step'],
-      revisedPlan,
+      issues: [],
+      designedPlan,
     });
 
-    const result = (await env.run(validatorActivity, {
+    const result = (await env.run(taskDesignerActivity, {
       plan: basePlan,
+      originalPrompt: 'Test',
       model: 'test',
-    })) as ValidatorResponse;
+    })) as TaskDesignerResponse;
 
-    expect(result.result.valid).toBe(true);
-    expect(result.result.revisedPlan).toBeDefined();
-    expect(result.result.revisedPlan!.tasks).toHaveLength(2);
-  });
-
-  it('defaults issues to empty array when not provided by LLM', async () => {
-    mockCallStructured.mockResolvedValue({ valid: true, issues: [] });
-
-    const result = (await env.run(validatorActivity, {
-      plan: basePlan,
-      model: 'test',
-    })) as ValidatorResponse;
-
-    expect(result.result.issues).toEqual([]);
+    expect(result.result.designedPlan).toBeDefined();
+    expect(result.result.designedPlan!.tasks[0].purpose).toBe('Get current market data');
+    expect(result.result.designedPlan!.tasks[0].successCriteria).toEqual(['Data from CoinGecko API', 'Includes USD and JPY']);
+    expect(result.result.designedPlan!.tasks[0].outputFormat).toBe('Markdown table');
   });
 });

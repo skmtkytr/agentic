@@ -1,7 +1,7 @@
 import {
   TaskSchema,
   TaskPlanSchema,
-  ValidationResultSchema,
+  TaskDesignResultSchema,
   ReviewerResultSchema,
   IntegrationReviewerResultSchema,
 } from '../../src/types/schemas';
@@ -135,32 +135,32 @@ describe('TaskPlanSchema', () => {
   });
 });
 
-describe('ValidationResultSchema', () => {
+describe('TaskDesignResultSchema', () => {
   it('parses valid: true with empty issues', () => {
-    const result = ValidationResultSchema.parse({ valid: true, issues: [] });
+    const result = TaskDesignResultSchema.parse({ valid: true, issues: [] });
     expect(result.valid).toBe(true);
     expect(result.issues).toEqual([]);
   });
 
   it('defaults issues to empty array', () => {
-    const result = ValidationResultSchema.parse({ valid: true });
+    const result = TaskDesignResultSchema.parse({ valid: true });
     expect(result.issues).toEqual([]);
   });
 
-  it('parses with revisedPlan', () => {
-    const result = ValidationResultSchema.parse({
+  it('parses with designedPlan', () => {
+    const result = TaskDesignResultSchema.parse({
       valid: true,
       issues: ['fixed something'],
-      revisedPlan: {
+      designedPlan: {
         planSummary: 'revised',
         tasks: [{ id: 't1', description: 'revised task' }],
       },
     });
-    expect(result.revisedPlan?.tasks).toHaveLength(1);
+    expect(result.designedPlan?.tasks).toHaveLength(1);
   });
 
   it('rejects missing valid field', () => {
-    const result = ValidationResultSchema.safeParse({ issues: [] });
+    const result = TaskDesignResultSchema.safeParse({ issues: [] });
     expect(result.success).toBe(false);
   });
 });

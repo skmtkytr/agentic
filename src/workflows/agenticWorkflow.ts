@@ -15,8 +15,8 @@ import type { AgentRole, PipelineAttempt, ActivityEvent, ActivityEventKind, Work
 
 const NON_RETRYABLE_ERRORS = ['AnthropicAuthError', 'JSONParseError', 'SchemaValidationError'];
 
-// Planner/Validator: structured JSON output — JSON/Schema errors are non-retryable
-const { plannerActivity, validatorActivity } = proxyActivities<Activities>({
+// Planner/TaskDesigner: structured JSON output — JSON/Schema errors are non-retryable
+const { plannerActivity, taskDesignerActivity } = proxyActivities<Activities>({
   startToCloseTimeout: '24 hours',
   retry: { initialInterval: '10 seconds', backoffCoefficient: 2, maximumInterval: '2 minutes', maximumAttempts: 3, nonRetryableErrorTypes: NON_RETRYABLE_ERRORS },
 });
@@ -81,7 +81,7 @@ async function executeDag(
       .slice(0, maxParallelTasks);
 
     if (ready.length === 0) {
-      // Should have been caught by validator — guard against infinite loop
+      // Should have been caught by task designer — guard against infinite loop
       throw ApplicationFailure.create({
         message: 'DAG execution deadlock: no tasks are ready but work remains',
         type: 'PlanCircularDependencyError',
@@ -277,30 +277,30 @@ export async function agenticWorkflow(input: WorkflowInput): Promise<WorkflowOut
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });
     }
 
-    // Phase 2: Validate
-    state.phase = 'validating';
-    emit('validator_start', 'プラン検証開始');
-    log.info('Starting validation phase', { taskCount: plan.tasks.length });
+    // Phase 2: Task Design (validation + detailed task design)
+    state.phase = 'designing';
+    emit('designer_start', 'タスク設計開始');
+    log.info('Starting task design phase', { taskCount: plan.tasks.length });
 
-    const validatorCfg = resolveConfig('validator', input);
-    const { result: validation } = await validatorActivity({ plan, model: validatorCfg.model, provider: validatorCfg.provider });
+    const designerCfg = resolveConfig('taskDesigner', input);
+    const { result: design } = await taskDesignerActivity({ plan, originalPrompt: input.prompt, model: designerCfg.model, provider: designerCfg.provider });
 
-    if (!validation.valid) {
-      emit('validator_done', `検証失敗: ${validation.issues.join('; ')}`);
+    if (!design.valid) {
+      emit('designer_done', `設計失敗: ${design.issues.join('; ')}`);
       throw ApplicationFailure.create({
-        message: `Plan validation failed: ${validation.issues.join('; ')}`,
-        type: 'ValidationFatalError',
+        message: `Task design failed: ${design.issues.join('; ')}`,
+        type: 'TaskDesignFatalError',
         nonRetryable: true,
       });
     }
 
-    emit('validator_done', `検証通過${validation.issues.length > 0 ? ` (注意: ${validation.issues.join(', ')})` : ''}`);
+    emit('designer_done', `設計完了${design.issues.length > 0 ? ` (注意: ${design.issues.join(', ')})` : ''}`);
 
-    const finalPlan = validation.revisedPlan ?? plan;
+    const finalPlan = design.designedPlan ?? plan;
     tasks.push(...finalPlan.tasks);
     state.totalTasks = tasks.length;
 
-    log.info('Validation passed', { taskCount: tasks.length, issues: validation.issues });
+    log.info('Task design passed', { taskCount: tasks.length, issues: design.issues });
 
     if (cancelled) {
       throw ApplicationFailure.create({ message: 'Cancelled by signal', nonRetryable: true });

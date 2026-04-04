@@ -27,7 +27,7 @@ const defaultMockActivities: Activities = {
       tasks: [makeTask()],
     },
   }),
-  validatorActivity: async () => ({
+  taskDesignerActivity: async () => ({
     result: { valid: true, issues: [] },
   }),
   executorActivity: async (req) => ({
@@ -138,7 +138,7 @@ describe('agenticWorkflow', () => {
   it('fails the workflow when plan validation returns invalid', async () => {
     const activities: Activities = {
       ...defaultMockActivities,
-      validatorActivity: async () => ({
+      taskDesignerActivity: async () => ({
         result: {
           valid: false,
           issues: ['Circular dependency detected between task_1 and task_2'],
@@ -155,7 +155,7 @@ describe('agenticWorkflow', () => {
         (err as { cause?: { message?: string }; message?: string }).cause?.message ??
         (err as { message?: string }).message ??
         '';
-      expect(msg).toMatch(/Plan validation failed/);
+      expect(msg).toMatch(/Task design failed/);
     }
   }, 60_000);
 
@@ -219,7 +219,7 @@ describe('agenticWorkflow', () => {
     expect(executionOrder.indexOf(idB)).toBeLessThan(executionOrder.indexOf(idC));
   }, 60_000);
 
-  it('uses revisedPlan from validator when provided', async () => {
+  it('uses designedPlan from taskDesigner when provided', async () => {
     const revisedTaskId = randomUUID();
 
     const activities: Activities = {
@@ -230,11 +230,11 @@ describe('agenticWorkflow', () => {
           tasks: [makeTask({ description: 'Original task' })],
         },
       }),
-      validatorActivity: async () => ({
+      taskDesignerActivity: async () => ({
         result: {
           valid: true,
           issues: ['Added missing step'],
-          revisedPlan: {
+          designedPlan: {
             planSummary: 'Revised plan',
             tasks: [
               makeTask({ id: revisedTaskId, description: 'Revised task' }),
@@ -627,8 +627,8 @@ describe('agenticWorkflow', () => {
         received.planner = { model: req.model, provider: req.provider };
         return { plan: { planSummary: 'Plan', tasks: [makeTask({ id: randomUUID() })] } };
       },
-      validatorActivity: async (req) => {
-        received.validator = { model: req.model, provider: req.provider };
+      taskDesignerActivity: async (req) => {
+        received.taskDesigner = { model: req.model, provider: req.provider };
         return { result: { valid: true, issues: [] } };
       },
       executorActivity: async (req) => {
@@ -664,9 +664,9 @@ describe('agenticWorkflow', () => {
     expect(received.planner.provider).toBe('local-llm');
     expect(received.planner.model).toBe('qwen3-32b');
 
-    // Validator: falls back to defaults
-    expect(received.validator.provider).toBe('default-provider');
-    expect(received.validator.model).toBe('default-model');
+    // TaskDesigner: falls back to defaults
+    expect(received.taskDesigner.provider).toBe('default-provider');
+    expect(received.taskDesigner.model).toBe('default-model');
 
     // Executor: overridden
     expect(received.executor.provider).toBe('claude-agent');
@@ -718,7 +718,7 @@ describe('agenticWorkflow', () => {
           })],
         },
       }),
-      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+      taskDesignerActivity: async () => ({ result: { valid: true, issues: [] } }),
       executorActivity: async (req) => {
         received.executor = { planContext: req.planContext, purpose: req.task.purpose, successCriteria: req.task.successCriteria };
         return { taskId: req.task.id, result: 'ETH = $2000' };
@@ -787,8 +787,8 @@ describe('agenticWorkflow', () => {
       const kinds = state.events.map((e) => e.kind);
       expect(kinds).toContain('planner_start');
       expect(kinds).toContain('planner_done');
-      expect(kinds).toContain('validator_start');
-      expect(kinds).toContain('validator_done');
+      expect(kinds).toContain('designer_start');
+      expect(kinds).toContain('designer_done');
       expect(kinds).toContain('executor_start');
       expect(kinds).toContain('executor_done');
       expect(kinds).toContain('reviewer_start');
@@ -820,7 +820,7 @@ describe('agenticWorkflow', () => {
           ],
         },
       }),
-      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+      taskDesignerActivity: async () => ({ result: { valid: true, issues: [] } }),
     };
 
     try {
@@ -848,7 +848,7 @@ describe('agenticWorkflow', () => {
           ],
         },
       }),
-      validatorActivity: async () => ({ result: { valid: true, issues: [] } }),
+      taskDesignerActivity: async () => ({ result: { valid: true, issues: [] } }),
     };
 
     try {

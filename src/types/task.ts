@@ -25,8 +25,8 @@ export interface TaskPlan {
   qualityGuidelines?: string;
 }
 
-export interface ValidationResult {
+export interface TaskDesignResult {
   valid: boolean;
   issues: string[];
-  revisedPlan?: TaskPlan;
+  designedPlan?: TaskPlan;
 }

@@ -9,7 +9,7 @@
     return marked.parse(text, { async: false }) as string;
   }
 
-  type Phase = 'planning' | 'validating' | 'executing' | 'integrating' | 'reviewing' | 'complete' | 'failed';
+  type Phase = 'planning' | 'designing' | 'executing' | 'integrating' | 'reviewing' | 'complete' | 'failed';
 
   interface ActivityEvent { kind: string; timestamp: number; taskId?: string; taskDescription?: string; summary: string; }
   interface TaskState { id: string; description: string; dependsOn: string[]; status: 'pending' | 'executing' | 'executed' | 'reviewed' | 'rejected'; result?: string; reviewNotes?: string; reviewPassed: boolean; }
@@ -18,10 +18,10 @@
   interface WorkflowResult { finalResponse: string; integrationReviewPassed: boolean; integrationReviewNotes: string; score?: ReviewScore; strengths?: string[]; improvements?: string[]; tasks: TaskState[]; executionTimeMs: number; pipelineAttempt?: number; }
   interface HistoryEntry { workflowId: string; status: string; startTime: string; prompt?: string; }
 
-  const PHASES: Phase[] = ['planning', 'validating', 'executing', 'integrating', 'reviewing', 'complete'];
+  const PHASES: Phase[] = ['planning', 'designing', 'executing', 'integrating', 'reviewing', 'complete'];
   const PHASE_META: Record<string, { icon: string; label: string; color: string }> = {
     planning:    { icon: '🧠', label: 'Planner',    color: 'var(--purple)' },
-    validating:  { icon: '🔍', label: 'Validator',   color: 'var(--cyan)' },
+    designing:   { icon: '📋', label: 'Designer',    color: 'var(--cyan)' },
     executing:   { icon: '⚡', label: 'Executor',    color: 'var(--blue)' },
     integrating: { icon: '🔗', label: 'Integrator',  color: 'var(--green)' },
     reviewing:   { icon: '✅', label: 'Reviewer',    color: 'var(--teal)' },
@@ -47,7 +47,7 @@
 
   const AGENT_ROLES: { role: AgentRole; label: string; icon: string; needsTools: boolean }[] = [
     { role: 'planner', label: 'Planner', icon: '🧠', needsTools: false },
-    { role: 'validator', label: 'Validator', icon: '🔍', needsTools: false },
+    { role: 'taskDesigner', label: 'Designer', icon: '📋', needsTools: false },
     { role: 'executor', label: 'Executor', icon: '⚡', needsTools: true },
     { role: 'reviewer', label: 'Reviewer', icon: '📋', needsTools: false },
     { role: 'integrator', label: 'Integrator', icon: '🔗', needsTools: false },
@@ -173,7 +173,7 @@
   function statusIcon(s: TaskState['status']) { return s==='reviewed'?'✓':s==='rejected'?'✗':s==='executing'?'⟳':s==='executed'?'…':'○'; }
   function statusColor(s: TaskState['status']) { return s==='reviewed'?'var(--green)':s==='rejected'?'var(--red)':s==='executing'?'var(--blue)':s==='executed'?'var(--amber)':'var(--muted)'; }
   function eventIcon(k: string) { return k.endsWith('_start')?'▶':k.endsWith('_done')?'✓':'·'; }
-  function eventColor(k: string) { if(k.startsWith('planner'))return'var(--purple)';if(k.startsWith('validator'))return'var(--cyan)';if(k.startsWith('executor'))return'var(--blue)';if(k.startsWith('reviewer'))return'var(--amber)';if(k.startsWith('integrator'))return'var(--green)';if(k.startsWith('integration_reviewer'))return'var(--teal)';return'var(--muted)'; }
+  function eventColor(k: string) { if(k.startsWith('planner'))return'var(--purple)';if(k.startsWith('designer'))return'var(--cyan)';if(k.startsWith('executor'))return'var(--blue)';if(k.startsWith('reviewer'))return'var(--amber)';if(k.startsWith('integrator'))return'var(--green)';if(k.startsWith('integration_reviewer'))return'var(--teal)';return'var(--muted)'; }
   function formatTime(ts: number) { return new Date(ts).toLocaleTimeString('ja-JP',{hour12:false}); }
   function formatDateTime(iso: string) { const d=new Date(iso);return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
   function statusBadge(s: string) { return s==='RUNNING'?{l:'実行中',c:'var(--blue)'}:s==='COMPLETED'?{l:'完了',c:'var(--green)'}:s==='FAILED'?{l:'失敗',c:'var(--red)'}:{l:s,c:'var(--muted)'}; }
@@ -425,7 +425,7 @@
           <div class="wf-grid">
           <div class="wf-left">
           <div class="dag">
-            <!-- Row 1: Planner → Validator -->
+            <!-- Row 1: Planner → Designer -->
             <div class="dag-row">
               <div class="pipe-node" class:done={cur>0} class:active={cur===0} style="--node-color:{PHASE_META.planning.color}">
                 <div class="pipe-icon">{PHASE_META.planning.icon}</div>
@@ -444,7 +444,7 @@
               </div>
             </div>
 
-            <!-- Vertical connector: Validator → Parallel zone -->
+            <!-- Vertical connector: Designer → Parallel zone -->
             <div class="v-connector" class:done={cur>=2} class:flowing={cur===1}>
               <div class="v-line-bg"></div>
               {#if cur>=2}<div class="v-line-fill"></div>{/if}

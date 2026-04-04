@@ -22,10 +22,10 @@ export const TaskPlanSchema = z.object({
   qualityGuidelines: z.string().optional(),
 });
 
-export const ValidationResultSchema = z.object({
+export const TaskDesignResultSchema = z.object({
   valid: z.boolean(),
   issues: z.array(z.string()).default([]),
-  revisedPlan: TaskPlanSchema.optional(),
+  designedPlan: TaskPlanSchema.optional(),
 });
 
 export const ReviewerResultSchema = z.object({

@@ -49,10 +49,10 @@ describe('plannerActivity', () => {
     const [_schema, opts] = mockCallStructured.mock.calls[0];
     expect(opts.system).toContain('ステップ1');
     expect(opts.system).toContain('userIntent');
-    expect(opts.system).toContain('successCriteria');
     expect(opts.system).toContain('qualityGuidelines');
-    expect(opts.system).toContain('purpose');
-    expect(opts.system).toContain('outputFormat');
+    // Planner no longer generates purpose/successCriteria/outputFormat (TaskDesigner handles that)
+    expect(opts.system).not.toContain('successCriteria');
+    expect(opts.system).toContain('設計エージェント'); // references task designer
   });
 
   // --- UUID remapping ---
@@ -96,7 +96,7 @@ describe('plannerActivity', () => {
     expect(result.plan.tasks[0].dependsOn).toContain('external_id');
   });
 
-  // --- New intent-driven fields ---
+  // --- Intent analysis fields ---
 
   it('passes through userIntent and qualityGuidelines from LLM output', async () => {
     mockCallStructured.mockResolvedValue({
@@ -106,9 +106,6 @@ describe('plannerActivity', () => {
       tasks: [{
         id: 'task_1',
         description: 'Fetch ETH price',
-        purpose: 'Get market data',
-        successCriteria: ['From reliable API', 'Includes USD'],
-        outputFormat: 'Markdown table',
         dependsOn: [],
         status: 'pending',
         reviewPassed: false,
@@ -122,29 +119,24 @@ describe('plannerActivity', () => {
 
     expect(result.plan.userIntent).toBe('User wants ETH price for investment');
     expect(result.plan.qualityGuidelines).toBe('Use real-time data');
-    expect(result.plan.tasks[0].purpose).toBe('Get market data');
-    expect(result.plan.tasks[0].successCriteria).toEqual(['From reliable API', 'Includes USD']);
-    expect(result.plan.tasks[0].outputFormat).toBe('Markdown table');
   });
 
-  it('handles legacy plan without intent-driven fields (backward compat)', async () => {
+  it('handles plan without userIntent/qualityGuidelines (backward compat)', async () => {
     mockCallStructured.mockResolvedValue({
-      planSummary: 'Legacy plan',
+      planSummary: 'Simple plan',
       tasks: [
-        { id: 'task_1', description: 'Old task', dependsOn: [], status: 'pending', reviewPassed: false },
+        { id: 'task_1', description: 'A task', dependsOn: [], status: 'pending', reviewPassed: false },
       ],
     });
 
     const result = (await env.run(plannerActivity, {
-      prompt: 'Legacy request',
+      prompt: 'Simple request',
       model: 'test',
     })) as PlannerResponse;
 
     expect(result.plan.tasks).toHaveLength(1);
     expect(result.plan.userIntent).toBeUndefined();
     expect(result.plan.qualityGuidelines).toBeUndefined();
-    expect(result.plan.tasks[0].purpose).toBeUndefined();
-    expect(result.plan.tasks[0].successCriteria).toBeUndefined();
   });
 
   it('remaps multi-dependency IDs correctly (task_3 depends on task_1 and task_2)', async () => {

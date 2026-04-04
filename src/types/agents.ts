@@ -1,4 +1,4 @@
-import type { Task, TaskPlan, ValidationResult } from './task';
+import type { Task, TaskPlan, TaskDesignResult } from './task';
 
 export interface PlanContext {
   userIntent?: string;
@@ -29,14 +29,15 @@ export interface PlannerResponse {
   plan: TaskPlan;
 }
 
-export interface ValidatorRequest {
+export interface TaskDesignerRequest {
   plan: TaskPlan;
+  originalPrompt: string;
   model: string;
   provider?: string;
 }
 
-export interface ValidatorResponse {
-  result: ValidationResult;
+export interface TaskDesignerResponse {
+  result: TaskDesignResult;
 }
 
 export interface ExecutorRequest {

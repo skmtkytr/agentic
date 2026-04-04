@@ -2,14 +2,14 @@ import type { Task } from './task';
 
 export type WorkflowPhase =
   | 'planning'
-  | 'validating'
+  | 'designing'
   | 'executing'
   | 'integrating'
   | 'reviewing'
   | 'complete'
   | 'failed';
 
-export type AgentRole = 'planner' | 'validator' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
+export type AgentRole = 'planner' | 'taskDesigner' | 'executor' | 'reviewer' | 'integrator' | 'integrationReviewer';
 
 export interface AgentLLMConfig {
   provider?: string;
@@ -59,8 +59,8 @@ export interface WorkflowOutput {
 export type ActivityEventKind =
   | 'planner_start'
   | 'planner_done'
-  | 'validator_start'
-  | 'validator_done'
+  | 'designer_start'
+  | 'designer_done'
   | 'executor_start'
   | 'executor_done'
   | 'reviewer_start'
