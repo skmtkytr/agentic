@@ -13,6 +13,8 @@ export interface ClaudeAgentProviderOptions {
   baseURL?: string;
   /** API key to use. Passed as ANTHROPIC_API_KEY env var. */
   apiKey?: string;
+  /** Disable thinking/reasoning for models that don't support it (e.g. local LLMs). */
+  disableThinking?: boolean;
 }
 
 /**
@@ -25,10 +27,12 @@ export class ClaudeAgentProvider implements LLMProvider {
   readonly name: string;
   readonly timeoutMs: number;
   private envOverrides: Record<string, string>;
+  private disableThinking: boolean;
 
   constructor(opts?: ClaudeAgentProviderOptions) {
     this.name = opts?.name ?? 'claude-agent';
     this.timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.disableThinking = opts?.disableThinking ?? false;
     this.envOverrides = {};
     if (opts?.baseURL) {
       this.envOverrides.ANTHROPIC_BASE_URL = opts.baseURL;
@@ -70,6 +74,7 @@ export class ClaudeAgentProvider implements LLMProvider {
           ? { tools: [], permissionMode: 'dontAsk' as const }
           : { allowedTools: opts.allowedTools, permissionMode: 'dontAsk' as const }),
         ...(opts.model ? { model: opts.model } : {}),
+        ...(this.disableThinking ? { thinking: { type: 'disabled' as const } } : {}),
         ...envOption,
       },
     })) {

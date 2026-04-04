@@ -20,11 +20,12 @@ if (process.env.LOCAL_LLM_BASE_URL) {
   const baseURL = process.env.LOCAL_LLM_BASE_URL;
   const apiKey = process.env.LOCAL_LLM_API_KEY ?? 'local-llm';
 
-  // Claude Agent SDK provider with local LLM backend (supports tools)
+  // Claude Agent SDK provider with local LLM backend (supports tools, thinking disabled)
   registry.register(new ClaudeAgentProvider({
     name: providerName,
     baseURL,
     apiKey,
+    disableThinking: true,
   }));
   console.log(`Registered local LLM provider (agent): ${providerName} at ${baseURL}`);
 
