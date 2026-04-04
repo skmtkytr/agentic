@@ -376,13 +376,7 @@
               </div>
               <div class="retry-input">
                 <label for="parallel">並列数</label>
-                <select id="parallel" bind:value={maxParallelTasks} disabled={loading}>
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                </select>
+                <input id="parallel" type="number" min="1" max="20" bind:value={maxParallelTasks} disabled={loading} />
               </div>
             </div>
             <button class="run-btn" onclick={submit} disabled={!prompt.trim()||loading}>
