@@ -44,7 +44,7 @@ describe('callStructured', () => {
     expect(result.name).toBe('plain');
   });
 
-  it('throws JSONParseError (non-retryable) on invalid JSON', async () => {
+  it('throws JSONParseError on invalid JSON', async () => {
     setTestProvider(mockProvider('not json'));
     try {
       await callStructured(TestSchema, { system: 's', userContent: 'u' });
@@ -55,7 +55,7 @@ describe('callStructured', () => {
     }
   });
 
-  it('throws SchemaValidationError (non-retryable) on schema mismatch', async () => {
+  it('throws SchemaValidationError on schema mismatch', async () => {
     setTestProvider(mockProvider('{"name":"test","value":"not_a_number"}'));
     try {
       await callStructured(TestSchema, { system: 's', userContent: 'u' });
@@ -66,7 +66,7 @@ describe('callStructured', () => {
     }
   });
 
-  it('throws plain Error (retryable) when result is empty', async () => {
+  it('throws plain Error when result is empty', async () => {
     setTestProvider(mockProvider(''));
     try {
       await callStructured(TestSchema, { system: 's', userContent: 'u' });

@@ -13,7 +13,7 @@ import type { AgentRole, PipelineAttempt, ActivityEvent, ActivityEventKind, Work
 
 // --- Activity proxies with role-specific retry policies ---
 
-const NON_RETRYABLE_ERRORS = ['AnthropicAuthError', 'JSONParseError', 'SchemaValidationError'];
+const NON_RETRYABLE_ERRORS = ['AnthropicAuthError'];
 
 // Planner/TaskDesigner: structured JSON output — JSON/Schema errors are non-retryable
 const { plannerActivity, taskDesignerActivity } = proxyActivities<Activities>({

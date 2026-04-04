@@ -16,7 +16,7 @@ export interface RawTextResult {
   toolUsage: ToolUsageRecord[];
 }
 
-/** Non-retryable: LLM returned invalid JSON that won't change on retry */
+/** LLM returned invalid JSON. Retryable since LLM output is non-deterministic. */
 export class JSONParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -24,7 +24,7 @@ export class JSONParseError extends Error {
   }
 }
 
-/** Non-retryable: LLM output doesn't match expected schema */
+/** LLM output doesn't match expected schema. Retryable since LLM output is non-deterministic. */
 export class SchemaValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -36,8 +36,8 @@ export class SchemaValidationError extends Error {
 
 /**
  * Call the LLM, parse the response as JSON, and validate against a Zod schema.
- * JSON parse and schema validation failures are non-retryable since the same
- * input will produce the same malformed output.
+ * JSON parse and schema validation failures are retryable since LLM output
+ * is non-deterministic and may produce valid output on retry.
  */
 export async function callStructured<T extends z.ZodTypeAny>(
   schema: T,
@@ -69,13 +69,13 @@ export async function callStructured<T extends z.ZodTypeAny>(
   try {
     raw = JSON.parse(cleaned);
   } catch (parseErr) {
-    log.warn('JSON parse failed (non-retryable)', { preview: cleaned.slice(0, 300) });
+    log.warn('JSON parse failed, will retry', { preview: cleaned.slice(0, 300) });
     throw new JSONParseError(`JSON parse failed: ${(parseErr as Error).message}`);
   }
 
   const result = schema.safeParse(raw);
   if (!result.success) {
-    log.warn('Schema validation failed (non-retryable)', { errors: result.error.issues });
+    log.warn('Schema validation failed, will retry', { errors: result.error.issues });
     throw new SchemaValidationError(`Schema validation failed: ${result.error.message}`);
   }
 
